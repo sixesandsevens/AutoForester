@@ -9,10 +9,14 @@ local function getClickedSquare(worldobjects)
     return nil
 end
 
-local function addMenu(playerNum, context, worldobjects, test)
+local function addContextMenuOptions(playerIndex, context, worldobjects, test)
     if test then return end
 
+    local player = getSpecificPlayer(playerIndex)
+    if not player then return end
+
     local sq = getClickedSquare(worldobjects)
+    if not sq then sq = player:getSquare() end
     if not sq then return end
 
     context:addOption("Designate Wood Pile Here", sq, function(targetSq)
@@ -26,9 +30,8 @@ local function addMenu(playerNum, context, worldobjects, test)
     end
 
     context:addOption("Auto-Chop Nearby Trees", sq, function()
-        local player = getSpecificPlayer(playerNum)
         AFCore.startJob(player)
     end)
 end
 
-Events.OnFillWorldObjectContextMenu.Add(addMenu)
+Events.OnFillWorldObjectContextMenu.Add(addContextMenuOptions)
