@@ -2,10 +2,18 @@ local Shared = require("AutoForester_Shared")
 local Actions = require("AutoForester_Actions")
 
 local AFCore = {}
+
 AFCore.data = ModData.getOrCreate("AutoForester")
 AFCore.data.stockpile = AFCore.data.stockpile or nil
+
+-- runtime cfg
 AFCore.cfg = {}
 for k,v in pairs(Shared.DefaultCfg) do AFCore.cfg[k] = v end
+
+-- simple sequential queue (one tree at a time)
+AFCore._queue = nil
+AFCore._index = 0
+AFCore._busy = false
 
 local function dbg(msg) print("[AutoForester] "..tostring(msg)) end
 
@@ -14,8 +22,8 @@ function AFCore.hasStockpile()
 end
 
 function AFCore.setStockpile(square)
-    AFCore.data.stockpile = { x = square:getX(), y = square:getY(), z = square:getZ() }
-    dbg("Stockpile set at "..square:getX()..","..square:getY()..","..square:getZ())
+    AFCore.data.stockpile = { x=square:getX(), y=square:getY(), z=square:getZ() }
+    dbg(string.format("Stockpile set at %d,%d,%d", square:getX(), square:getY(), square:getZ()))
     Shared.Say(getSpecificPlayer(0), "Wood pile set.")
 end
 
@@ -66,22 +74,58 @@ local function axeTooLow(player)
     return cond < AFCore.cfg.minAxeCondition
 end
 
+local function guardsFail(player)
+    if playerIsTooTired(player) then
+        Shared.Say(player, "Too exhausted—pausing.")
+        return true
+    end
+    if axeTooLow(player) then
+        Shared.Say(player, "Axe too damaged—pausing.")
+        return true
+    end
+    if Shared.IsOverEncumbered(player) then
+        Shared.Say(player, "Over-encumbered—pausing.")
+        return true
+    end
+    return false
+end
+
+local function processNext(player)
+    if not AFCore._queue or AFCore._index > #AFCore._queue then
+        AFCore._busy = false
+        Shared.Say(player, "AutoForester job complete.")
+        return
+    end
+    if guardsFail(player) then
+        AFCore._busy = false
+        return
+    end
+    local entry = AFCore._queue[AFCore._index]
+    AFCore._index = AFCore._index + 1
+    Actions.enqueueChopLootDeliver(player, entry.tree, entry.square, AFCore.data.stockpile, AFCore.cfg,
+        function() processNext(player) end)
+end
+
 function AFCore.startJob(player)
     if not player then return end
+    if AFCore._busy then
+        Shared.Say(player, "Already working—please wait.")
+        return
+    end
     local originSq = player:getSquare()
     if not originSq then return end
 
-    if playerIsTooTired(player) then Shared.Say(player, "Too exhausted.") return end
-    if axeTooLow(player) then Shared.Say(player, "Axe too damaged.") return end
-
     local trees = findTreesAround(originSq, AFCore.cfg.radius)
-    dbg("Found "..#trees.." trees")
-    if #trees == 0 then Shared.Say(player, "No trees nearby.") return end
-
-    for _,t in ipairs(trees) do
-        Actions.enqueueChopLootDeliver(player, t.tree, t.square, AFCore.data.stockpile)
+    if #trees == 0 then
+        Shared.Say(player, "No trees nearby.")
+        return
     end
-    Shared.Say(player, "Queued "..#trees.." trees.")
+
+    AFCore._queue = trees
+    AFCore._index = 1
+    AFCore._busy = true
+    Shared.Say(player, "Queued "..tostring(#trees).." tree(s).")
+    processNext(player)
 end
 
 return AFCore
