@@ -14,6 +14,7 @@ for k,v in pairs(Shared.DefaultCfg) do AFCore.cfg[k] = v end
 AFCore._queue = nil
 AFCore._index = 0
 AFCore._busy = false
+AFCore._lastPulse = 0
 
 local function dbg(msg) print("[AutoForester] "..tostring(msg)) end
 
@@ -91,6 +92,7 @@ local function guardsFail(player)
 end
 
 local function processNext(player)
+    AFCore._lastPulse = getTimestampMs and getTimestampMs() or (AFCore._lastPulse + 1)
     if not AFCore._queue or AFCore._index > #AFCore._queue then
         AFCore._busy = false
         Shared.Say(player, "AutoForester job complete.")
@@ -127,5 +129,20 @@ function AFCore.startJob(player)
     Shared.Say(player, "Queued "..tostring(#trees).." tree(s).")
     processNext(player)
 end
+
+-- Watchdog: if we're "busy" but the player's timed action queue is empty for too long, kick the next task.
+local function watchdog()
+    if not AFCore._busy then return end
+    local p = getSpecificPlayer(0)
+    if not p then return end
+    local q = ISTimedActionQueue.getTimedActionQueue(p)
+    local hasActions = q and q.queue and q.queue:size() > 0
+    local now = getTimestampMs and getTimestampMs() or 0
+    if not hasActions and now and AFCore._lastPulse and (now - AFCore._lastPulse) > 4000 then
+        print("[AutoForester] Watchdog pulse: queue empty but busy=true; advancing…")
+        processNext(p)
+    end
+end
+Events.EveryOneSecond.Add(watchdog)
 
 return AFCore

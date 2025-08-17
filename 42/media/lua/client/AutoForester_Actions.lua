@@ -62,12 +62,32 @@ local function dropAllWood(player)
     end
 end
 
+-- Validate the player is close enough to swing, otherwise walk
+local function queueWalkToTree(player, tree, treeSq)
+    if not player or not tree or not treeSq then return false end
+    -- 1. If already adjacent, skip walking
+    local px,py,pz = player:getX(), player:getY(), player:getZ()
+    local tx,ty,tz = treeSq:getX(), treeSq:getY(), treeSq:getZ()
+    local dx = math.abs(px - tx)
+    local dy = math.abs(py - ty)
+    if dx <= 1 and dy <= 1 and pz == tz then
+        return true
+    end
+    -- 2. Path to the tree square
+    ISTimedActionQueue.add(ISWalkToAction:new(player, treeSq))
+    dbg("Queued walk to tree at "..tx..","..ty)
+    return true
+end
+
 -- Enqueue one tree cycle. When done, calls onDone() to trigger next.
 function Actions.enqueueChopLootDeliver(player, tree, treeSq, stockpile, cfg, onDone)
-    if not player or not tree then
+    if not player or not tree or not treeSq then
         if onDone then onDone() end
         return
     end
+
+    -- 0) Walk to tree (important: without this, Chop can silently fail and stall)
+    queueWalkToTree(player, tree, treeSq)
 
     -- 1) Chop
     ISTimedActionQueue.add(ISChopTreeAction:new(player, tree))
@@ -93,6 +113,8 @@ function Actions.enqueueChopLootDeliver(player, tree, treeSq, stockpile, cfg, on
                 dropAllWood(player)
                 Shared.Say(player, "Delivered to wood pile.")
             end))
+        else
+            dbg("Stockpile square missing/invalid")
         end
     end
 
