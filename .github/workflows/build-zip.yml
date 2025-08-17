@@ -1,0 +1,27 @@
+name: build-zip
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make zip
+        run: |
+          set -eux
+          mkdir -p dist
+          zip -r dist/AutoForester_B42.zip AutoForester/42 AutoForester/common 2>/dev/null || true
+          # Fallback if repo root holds 42/ directly (no nested AutoForester/)
+          if [ ! -f dist/AutoForester_B42.zip ]; then
+            mkdir -p AutoForester
+            cp -r 42 common AutoForester/
+            zip -r dist/AutoForester_B42.zip AutoForester
+          fi
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoForester_B42
+          path: dist/AutoForester_B42.zip

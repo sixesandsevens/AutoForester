@@ -1,0 +1,14 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Build artifacts
+AutoForester_B42.zip
+*.zip
+
+# Logs (if we add any later)
+logs/
