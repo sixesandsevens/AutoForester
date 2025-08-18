@@ -1,4 +1,4 @@
 name=AutoForester (B42)
 id=AutoForester
-description=Auto-chop nearby trees, collect wood, and deliver to a designated pile.
-pack=AutoForester
+description=Auto-chop nearby trees, collect drops, and deliver to a designated pile.
+poster=poster.png
