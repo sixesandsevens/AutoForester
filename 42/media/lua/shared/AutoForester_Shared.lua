@@ -1,31 +1,42 @@
--- Shared config/constants & small helpers
+-- Shared constants & data (PZ B42)
+AutoForester_Shared = AutoForester_Shared or {}
 
-AutoForester_Shared = {}
-
+-- items we’ll haul
 AutoForester_Shared.ITEM_TYPES = {
-    Log = true,
-    TreeBranch = true,
-    Twigs = true,
+  Log = true, TreeBranch = true, Twigs = true,
 }
 
-AutoForester_Shared.DefaultCfg = {
-    radius = 20,                 -- tiles to search from player
-    sweepRadius = 1,             -- tiles around stump to scavenge (Manhattan 1)
-    stopWhenExerted = true,      -- pause when exerted
-    minAxeCondition = 0.20,      -- stop queuing when axe < 20%
-    sayFeedback = true,          -- player:Say(...) chatter
+-- persistent stockpile (saved in ModData for this save)
+local MD = ModData.getOrCreate("AutoForester")
+AutoForester_Shared.Stockpile = MD.Stockpile or nil
+local function save() MD.Stockpile = AutoForester_Shared.Stockpile end
+
+-- defaults (tweak later with ModOptions if you like)
+AutoForester_Shared.cfg = {
+  radius = 15,        -- search radius in tiles (kept moderate)
+  sweepRadius = 1,    -- pick up drops in 3x3 around stump
+  say = true,
 }
 
-function AutoForester_Shared.Say(player, text)
-    if not player or not AutoForester_Shared.DefaultCfg.sayFeedback then return end
-    player:Say(text)
+function AutoForester_Shared.say(p, txt)
+  if AutoForester_Shared.cfg.say and p and p.Say then p:Say(txt) end
 end
 
-function AutoForester_Shared.IsOverEncumbered(player)
-    if not player then return false end
-    -- Some builds expose isOverEncumbered(); guard with pcall.
-    local ok, res = pcall(function() return player:isOverEncumbered() end)
-    return ok and res or false
+function AutoForester_Shared.setPile(sq)
+  if not sq then return end
+  AutoForester_Shared.Stockpile = {x=sq:getX(), y=sq:getY(), z=sq:getZ()}
+  save()
+end
+
+function AutoForester_Shared.clearPile()
+  AutoForester_Shared.Stockpile = nil
+  save()
+end
+
+function AutoForester_Shared.getPileSquare()
+  local sp = AutoForester_Shared.Stockpile
+  if not sp then return nil end
+  return getCell():getGridSquare(sp.x, sp.y, sp.z)
 end
 
 return AutoForester_Shared
