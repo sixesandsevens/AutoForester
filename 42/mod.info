@@ -1,5 +1,6 @@
-name=AutoForester (B42)
-id=AutoForesterB42
-description=Singleplayer automation: chop nearby trees and haul logs to a designated pile. Build 42.
-version=0.1
-author=AutoForester Team
+name=AutoChop Singleplayer Automation
+id=auto_chop_mod_b42
+description=Automates tree chopping and log hauling in singleplayer (Build 42).
+version=1.0
+author=SixesAndSevens
+
