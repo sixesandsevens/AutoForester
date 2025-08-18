@@ -32,14 +32,24 @@ local function addMenu(pi, context, wos, test)
   local sq = getSafeSquare(pi, wos)
 
   context:addOption("Designate Wood Pile Here", sq, function(targetSq)
-    local c=core(); if not c then say(pi,"Core missing"); return end
-    c.setStockpile(targetSq or getSafeSquare(pi, wos))
+    local C = core()
+    if not C then
+      local p = getSpecificPlayer and getSpecificPlayer(pi or 0)
+      if p and p.Say then p:Say("AutoForester core didn't load. Check console.") end
+      return
+    end
+    C.setStockpile(targetSq or getSafeSquare(pi, wos))
   end)
 
   context:addOption("Auto-Chop Nearby Trees", sq, function()
-    local c=core(); if not c then say(pi,"Core missing"); return end
+    local C = core()
+    if not C then
+      local p = getSpecificPlayer and getSpecificPlayer(pi or 0)
+      if p and p.Say then p:Say("AutoForester core didn't load. Check console.") end
+      return
+    end
     local p = getSpecificPlayer(pi or 0); if not p then say(pi,"No player"); return end
-    c.startJob(p)
+    C.startJob(p)
   end)
 
   local c=core()
