@@ -156,7 +156,10 @@ local function queueDeliver(p, items)
         end
     else
         -- drop to ground square (instant)
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, AutoChopTask.dropSquare))
+        ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
+            AutoChopTask.dropSquare:getX(),
+            AutoChopTask.dropSquare:getY(),
+            AutoChopTask.dropSquare:getZ()))
         for _, it in ipairs(items) do
             -- remove then add to ground
             p:getInventory():Remove(it)
@@ -193,7 +196,8 @@ function AutoChopTask.update()
                 return
             end
             dbg(string.format("Walking to & chopping tree @ %d,%d", tsq:getX(), tsq:getY()))
-            ISTimedActionQueue.add(ISWalkToTimedAction:new(p, tsq))
+            ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
+                tsq:getX(), tsq:getY(), tsq:getZ()))
             -- Chop (B42 signature is (player, tree))
             ISTimedActionQueue.add(ISChopTreeAction:new(p, tree))
             -- Next tick when queue empty, we will haul
@@ -206,7 +210,10 @@ function AutoChopTask.update()
             dbg("Found ".. tostring(#items) .." item(s) to haul.")
             if #items > 0 then
                 queuePickupItems(p, items)
-                ISTimedActionQueue.add(ISWalkToTimedAction:new(p, AutoChopTask.dropSquare))
+                ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
+                    AutoChopTask.dropSquare:getX(),
+                    AutoChopTask.dropSquare:getY(),
+                    AutoChopTask.dropSquare:getZ()))
                 queueDeliver(p, items)
             end
             -- After haul queue done, we'll clear currentTree in the next phase
