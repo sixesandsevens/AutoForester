@@ -1,4 +1,4 @@
 name=AutoForester (B42)
 id=AutoForester
-description=Right-click to set a wood stockpile, then auto-chop trees, collect logs/branches/twigs, and stack at your pile. Build 42 compatible.
+description=Auto-chop nearby trees, collect wood, and deliver to a designated pile.
 pack=AutoForester
