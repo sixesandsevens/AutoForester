@@ -63,7 +63,15 @@ end
 
 local function playerIsTooTired(player)
     if not Shared.DefaultCfg.stopWhenExerted then return false end
-    return player:isExertion()
+    if not player or not player:isAlive() then return true end
+    local stats = player:getStats()
+    if not stats then return true end
+    local endu = stats:getEndurance()
+    local fat = stats:getFatigue()
+    local tooTired = player:isExertion() or (endu and endu < 0.05) or (fat and fat > 0.9)
+    print(string.format("[AutoForester] TooTired=%s endu=%.3f fat=%.3f",
+        tostring(tooTired), endu or -1, fat or -1))
+    return tooTired
 end
 
 local function axeTooLow(player)
@@ -127,7 +135,13 @@ function AFCore.startJob(player)
     AFCore._index = 1
     AFCore._busy = true
     Shared.Say(player, "Queued "..tostring(#trees).." tree(s).")
-    processNext(player)
+    local ok, err = pcall(processNext, player)
+    if not ok then
+        AFCore._busy = false
+        AFCore._queue = nil
+        print("[AutoForester][ERROR] "..tostring(err))
+        Shared.Say(player, "AutoForester error; queue cleared.")
+    end
 end
 
 -- Watchdog: if we're "busy" but the player's timed action queue is empty for too long, kick the next task.
