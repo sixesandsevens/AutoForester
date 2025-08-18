@@ -26,4 +26,17 @@ function AutoForester_Shared.getPileSquare()
   return getCell():getGridSquare(sp.x, sp.y, sp.z)
 end
 
+function AutoForester_Shared.getPileContainer()
+  local sq = AutoForester_Shared.getPileSquare()
+  if not sq then return nil end
+  local objs = sq:getObjects()
+  if not objs then return nil end
+  for i=0, objs:size()-1 do
+    local o = objs:get(i)
+    local c = o and o:getContainer()
+    if c then return c end
+  end
+  return nil
+end
+
 return AutoForester_Shared
