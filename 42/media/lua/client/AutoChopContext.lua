@@ -3,6 +3,8 @@
 
 require "AutoChopTask"
 
+local pending = { chop=nil, gather=nil }
+
 local function getSafeSquare(playerIndex, worldObjects)
     local ms = _G.getMouseSquare
     local sq = (type(ms)=="function") and ms() or nil
@@ -52,6 +54,37 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
             end
             AutoChopTask.setDropAt(targetSq, container)
             if container then player:Say("Stockpile set (container).") else player:Say("Stockpile set (ground).") end
+        end
+    end)
+
+    context:addOption("Cancel AutoForester Job", nil, function()
+        if AutoChopTask and AutoChopTask.cancel then AutoChopTask.cancel("user cancel") end
+        player:Say("Canceled.")
+    end)
+
+    context:addOption("Chop Area: Set Corner", nil, function()
+        local first = getSafeSquare(playerIndex, worldObjects)
+        if not first then return end
+        if not pending.chop then
+            pending.chop = first
+            player:Say("Chop area: first corner set. Right-click again → Chop Area: Set Corner for second.")
+        else
+            AutoChopTask.setChopRect(pending.chop, first)
+            pending.chop = nil
+            player:Say("Chop area set.")
+        end
+    end)
+
+    context:addOption("Gather Area: Set Corner", nil, function()
+        local first = getSafeSquare(playerIndex, worldObjects)
+        if not first then return end
+        if not pending.gather then
+            pending.gather = first
+            player:Say("Gather area: first corner set. Right-click again → Gather Area: Set Corner for second.")
+        else
+            AutoChopTask.setGatherRect(pending.gather, first)
+            pending.gather = nil
+            player:Say("Gather area set.")
         end
     end)
 
