@@ -4,7 +4,8 @@ require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISWalkToTimedAction"
 require "TimedActions/ISChopTreeAction"     -- we use this later after walking
 require "TimedActions/ISGrabItemAction"
-require "TimedActions/ISDropItemAction"
+require "TimedActions/ISInventoryTransferAction"   -- for container piles
+-- require "TimedActions/ISDropItemAction"
 
 print("[AutoForester] Core file loading")
 
@@ -101,19 +102,44 @@ local function queueLootSweep(p, stumpSq, r)
   end))
 end
 
+-- Move carried haulables to the stockpile. If a container was designated,
+-- transfer into it; otherwise place on ground at the pile square.
 local function queueDropAtPile(p)
-  local pile = Shared.getPileSquare(); if not pile then return end
-  queueWalkTo(p, pile)
-  ISTimedActionQueue.add(AFInstant:new(p, function()
-    local items = p:getInventory():getItems()
-    for i=items:size()-1,0,-1 do
-      local it = items:get(i)
-      if it and Shared.ITEM_TYPES[it:getType()] then
-        ISTimedActionQueue.add(ISDropItemAction:new(p, it))
-      end
+    local pile = Shared.getPileSquare()
+    if not pile then return end
+
+    -- 1) Walk to the pile (explicit coords are safest)
+    queueWalkTo(p, pile)
+
+    -- 2) Snapshot just the items we care about (inventory can mutate during queue)
+    local inv = p:getInventory()
+    local items = {}
+    local all = inv:getItems()
+    for i = all:size()-1, 0, -1 do
+        local it = all:get(i)
+        if it and Shared.ITEM_TYPES[it:getType()] then
+            table.insert(items, it)
+        end
     end
-    Shared.say(p, "Delivered to wood pile.")
-  end))
+    if #items == 0 then return end
+
+    -- 3) Deliver
+    local cont = Shared.getPileContainer() -- nil if ground pile
+    if cont then
+        -- Use inventory transfers for containers
+        for i = 1, #items do
+            ISTimedActionQueue.add(ISInventoryTransferAction:new(p, items[i], inv, cont))
+        end
+    else
+        -- Drop EXACTLY at pile square via instant callback, not at "current" square
+        ISTimedActionQueue.add(AFInstant:new(p, function()
+            for i = 1, #items do
+                local it = items[i]
+                if inv:contains(it) then inv:Remove(it) end
+                pile:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
+            end
+        end))
+    end
 end
 
 local function step(p)
