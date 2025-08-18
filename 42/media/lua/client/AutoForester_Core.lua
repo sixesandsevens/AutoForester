@@ -1,10 +1,12 @@
-print("[AutoForester] Core file loading")
-
--- Hard requires so parse-time never explodes on missing classes
-require "TimedActions/ISChopTreeAction"
-require "TimedActions/ISWalkToAction"
+-- B42 TimedAction classes (explicit requires to guarantee globals exist here)
+require "TimedActions/ISBaseTimedAction"
+require "TimedActions/ISTimedActionQueue"
+require "TimedActions/ISWalkToTimedAction"
+require "TimedActions/ISChopTreeAction"     -- we use this later after walking
 require "TimedActions/ISGrabItemAction"
 require "TimedActions/ISDropItemAction"
+
+print("[AutoForester] Core file loading")
 
 local Shared = require "AutoForester_Shared"
 local Core = { _queue=nil, _i=0, _busy=false, _lastPulse=0 }
@@ -40,7 +42,46 @@ local function findNearbyTrees(originSq, r)
   return trees
 end
 
-local function queueWalkTo(p, sq) if p and sq then ISTimedActionQueue.add(ISWalkToAction:new(p, sq)) end end
+-- Walk the player to a square; returns true if we queued a walk
+local function queueWalkTo(p, sq)
+    if not p or not sq then return false end
+
+    -- Safety: make sure class globals are really present
+    if not ISTimedActionQueue or not ISWalkToTimedAction then
+        print("[AutoForester][ERROR] TimedAction classes not loaded (ISTimedActionQueue/ISWalkToTimedAction nil)")
+        return false
+    end
+
+    -- B42 accepts the square directly
+    local ok, err = pcall(function()
+        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
+    end)
+
+    if not ok then
+        print("[AutoForester][ERROR] queueWalkTo failed: "..tostring(err))
+        return false
+    end
+    return true
+end
+
+local function queueChop(p, tree)
+    if not p or not tree then return false end
+    if not ISTimedActionQueue or not ISChopTreeAction then
+        print("[AutoForester][ERROR] TimedAction classes not loaded (ISTimedActionQueue/ISChopTreeAction nil)")
+        return false
+    end
+
+    local ok, err = pcall(function()
+        -- ISChopTreeAction:new(character, tree) in B42 (no time arg needed; engine sets it)
+        ISTimedActionQueue.add(ISChopTreeAction:new(p, tree))
+    end)
+
+    if not ok then
+        print("[AutoForester][ERROR] queueChop failed: "..tostring(err))
+        return false
+    end
+    return true
+end
 
 local function queueLootSweep(p, stumpSq, r)
   ISTimedActionQueue.add(AFInstant:new(p, function()
@@ -84,8 +125,16 @@ local function step(p)
   if not (job and job.tree and job.square) then return step(p) end
 
   dbg(("Step walk→chop @ %d,%d"):format(job.square:getX(), job.square:getY()))
-  queueWalkTo(p, job.square)
-  ISTimedActionQueue.add(ISChopTreeAction:new(p, job.tree))
+  if not queueWalkTo(p, job.square) then
+    p:Say("Could not start walk; actions unavailable.")
+    Core._queue, Core._busy = nil, false
+    return
+  end
+  if not queueChop(p, job.tree) then
+    p:Say("Could not start chop; actions unavailable.")
+    Core._queue, Core._busy = nil, false
+    return
+  end
   queueLootSweep(p, job.square, Shared.cfg.sweepRadius or 1)
   queueDropAtPile(p)
   ISTimedActionQueue.add(AFInstant:new(p, function() step(p) end))
