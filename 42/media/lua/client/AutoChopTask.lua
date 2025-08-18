@@ -8,6 +8,9 @@ AutoChopTask.RADIUS = 12                -- tiles around center to search for tre
 AutoChopTask.PICKUP_ADJ_RADIUS = 1      -- sweep 3x3 around stump to find logs
 AutoChopTask.HAUL_ITEM_TYPES = { Log=true, TreeBranch=true, Twigs=true } -- which items to haul
 AutoChopTask.MAX_TREES_PER_RUN = 25     -- safety cap per run to avoid 100+ action spam
+AutoChopTask.chopRect = nil   -- {x1,y1,x2,y2,z}
+AutoChopTask.gatherRect = nil -- optional {x1,y1,x2,y2,z}
+AutoChopTask.WEIGHT_FULL_FRACTION = 0.9  -- deliver when >= 90% capacity
 
 -- ===== STATE =====
 AutoChopTask.player = nil
@@ -18,6 +21,8 @@ AutoChopTask.dropSquare = nil     -- IsoGridSquare
 AutoChopTask.dropContainer = nil  -- ItemContainer (crate/vehicle) if set
 AutoChopTask.active = false
 AutoChopTask.phase = "idle"       -- "idle" | "moveAndChop" | "haul"
+AutoChopTask.idleTicks = 0       -- counts empty-queue ticks while active
+AutoChopTask.IDLE_TICK_LIMIT = 120  -- ~2 seconds at 60 FPS; adjust if needed
 
 local function dbg(msg)
     print("[AutoForester] " .. tostring(msg))
@@ -48,24 +53,55 @@ local function squaresAround(sq, r)
     return out
 end
 
-local function findTrees(centerSq, radius)
+local function makeRect(a, b)
+    if not a or not b then return nil end
+    local z = a:getZ()
+    return { math.min(a:getX(), b:getX()), math.min(a:getY(), b:getY()),
+             math.max(a:getX(), b:getX()), math.max(a:getY(), b:getY()), z }
+end
+
+function AutoChopTask.setChopRect(corner1, corner2)
+    AutoChopTask.chopRect = makeRect(corner1, corner2)
+    print("[AutoForester] Chop area set:", AutoChopTask.chopRect and table.concat(AutoChopTask.chopRect, ",") or "nil")
+end
+
+function AutoChopTask.setGatherRect(corner1, corner2)
+    AutoChopTask.gatherRect = makeRect(corner1, corner2)
+    print("[AutoForester] Gather area set:", AutoChopTask.gatherRect and table.concat(AutoChopTask.gatherRect, ",") or "nil")
+end
+
+local function squaresInRect(rect)
     local list = {}
-    if not centerSq then return list end
-    local seen = {}
-    for _, s in ipairs(squaresAround(centerSq, radius)) do
-        local objs = s:getObjects()
-        if objs then
-            for i=0, objs:size()-1 do
-                local o = objs:get(i)
-                if o and (instanceof(o,"IsoTree") or o:getObjectName()=="Tree") then
-                    local key = tostring(o) -- unique-ish
-                    if not seen[key] then
-                        list[#list+1] = o
-                        seen[key] = true
-                    end
-                end
+    if not rect then return list end
+    local x1,y1,x2,y2,z = table.unpack(rect)
+    local cell = getCell()
+    for x=x1,x2 do
+        for y=y1,y2 do
+            local s = cell:getGridSquare(x,y,z)
+            if s then list[#list+1] = s end
+        end
+    end
+    return list
+end
+
+local function findTreesFromAreas(centerSq, radius)
+    local list, seen = {}, {}
+    local function pushTreesOnSquare(sq)
+        local objs = sq and sq:getObjects()
+        if not objs then return end
+        for i=0, objs:size()-1 do
+            local o = objs:get(i)
+            if o and (instanceof(o,"IsoTree") or o:getObjectName()=="Tree") then
+                local key = tostring(o)
+                if not seen[key] then list[#list+1]=o; seen[key]=true end
             end
         end
+    end
+
+    if AutoChopTask.chopRect then
+        for _, s in ipairs(squaresInRect(AutoChopTask.chopRect)) do pushTreesOnSquare(s) end
+    else
+        for _, s in ipairs(squaresAround(centerSq, radius)) do pushTreesOnSquare(s) end
     end
     return list
 end
@@ -88,10 +124,25 @@ function AutoChopTask.setDropAt(square, containerOrNil)
     end
 end
 
+function AutoChopTask.cancel(reason)
+    print("[AutoForester] Job canceled: " .. tostring(reason or ""))
+    AutoChopTask.active = false
+    AutoChopTask.phase = "idle"
+    AutoChopTask.player = nil
+    AutoChopTask.currentTree = nil
+    AutoChopTask.trees = {}
+    AutoChopTask.idleTicks = 0
+end
+
 function AutoChopTask.start(playerObj, centerSquare)
     if AutoChopTask.active then
-        say(playerObj, "Already working…")
-        return
+        local q = ISTimedActionQueue.getTimedActionQueue(playerObj)
+        if q and not q:isEmpty() then
+            playerObj:Say("Already chopping…")
+            return
+        else
+            AutoChopTask.cancel("stale-active before start")
+        end
     end
     if not getAxe(playerObj) then
         say(playerObj, "Equip an axe first.")
@@ -99,7 +150,7 @@ function AutoChopTask.start(playerObj, centerSquare)
     end
     AutoChopTask.player = playerObj
     AutoChopTask.centerSq = centerSquare or playerObj:getCurrentSquare()
-    AutoChopTask.trees = findTrees(AutoChopTask.centerSq, AutoChopTask.RADIUS) or {}
+    AutoChopTask.trees = findTreesFromAreas(AutoChopTask.centerSq, AutoChopTask.RADIUS) or {}
     -- cap list
     if #AutoChopTask.trees > AutoChopTask.MAX_TREES_PER_RUN then
         local t = {}
@@ -118,6 +169,7 @@ function AutoChopTask.start(playerObj, centerSquare)
     AutoChopTask.active = true
     AutoChopTask.phase = "moveAndChop"
     AutoChopTask.currentTree = nil
+    AutoChopTask.idleTicks = 0
     say(playerObj, string.format("Queued %d tree(s).", #AutoChopTask.trees))
     dbg(string.format("Queued %d tree(s) around %d,%d", #AutoChopTask.trees, AutoChopTask.centerSq:getX(), AutoChopTask.centerSq:getY()))
 end
@@ -133,6 +185,22 @@ local function collectNearbyItems(sq)
             for i=0, wios:size()-1 do
                 local wio = wios:get(i)
                 local it = wio and wio:getItem()
+                if it and AutoChopTask.HAUL_ITEM_TYPES[it:getType()] then
+                    items[#items+1] = it
+                end
+            end
+        end
+    end
+    return items
+end
+
+local function collectHaulablesFromRect(rect)
+    local items = {}
+    for _, s in ipairs(squaresInRect(rect)) do
+        local wios = s:getWorldObjects()
+        if wios then
+            for i=0, wios:size()-1 do
+                local it = wios:get(i):getItem()
                 if it and AutoChopTask.HAUL_ITEM_TYPES[it:getType()] then
                     items[#items+1] = it
                 end
@@ -173,12 +241,20 @@ function AutoChopTask.update()
     if not AutoChopTask.active or not AutoChopTask.player then return end
     local p = AutoChopTask.player
     local q = ISTimedActionQueue.getTimedActionQueue(p)
-    if not q:isEmpty() then return end -- busy with actions
+    if not q:isEmpty() then
+        AutoChopTask.idleTicks = 0
+        return
+    end
 
-    -- If idle between phases, advance
+    AutoChopTask.idleTicks = AutoChopTask.idleTicks + 1
+    if AutoChopTask.idleTicks > AutoChopTask.IDLE_TICK_LIMIT then
+        p:Say("AutoForester timed out; resetting.")
+        AutoChopTask.cancel("idle watchdog")
+        return
+    end
+
     if AutoChopTask.phase == "moveAndChop" then
         if AutoChopTask.currentTree == nil then
-            -- get next
             local tree = table.remove(AutoChopTask.trees, 1)
             if not tree then
                 say(p, "All done!")
@@ -186,6 +262,7 @@ function AutoChopTask.update()
                 AutoChopTask.active = false
                 AutoChopTask.phase = "idle"
                 AutoChopTask.player = nil
+                AutoChopTask.idleTicks = 0
                 return
             end
             AutoChopTask.currentTree = tree
@@ -193,34 +270,52 @@ function AutoChopTask.update()
             if not tsq then
                 dbg("Tree has no square; skipping")
                 AutoChopTask.currentTree = nil
+                AutoChopTask.idleTicks = 0
                 return
             end
             dbg(string.format("Walking to & chopping tree @ %d,%d", tsq:getX(), tsq:getY()))
             ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
                 tsq:getX(), tsq:getY(), tsq:getZ()))
-            -- Chop (B42 signature is (player, tree))
             ISTimedActionQueue.add(ISChopTreeAction:new(p, tree))
-            -- Next tick when queue empty, we will haul
+            AutoChopTask.idleTicks = 0
         else
-            -- Chop finished (since queue is now empty)
             local tsq = AutoChopTask.currentTree and AutoChopTask.currentTree:getSquare()
             AutoChopTask.phase = "haul"
-            -- Plan hauling: pick items around stump then deliver
-            local items = tsq and collectNearbyItems(tsq) or {}
+            local items
+            if AutoChopTask.gatherRect then
+                items = collectHaulablesFromRect(AutoChopTask.gatherRect)
+            else
+                items = tsq and collectNearbyItems(tsq) or {}
+            end
             dbg("Found ".. tostring(#items) .." item(s) to haul.")
             if #items > 0 then
                 queuePickupItems(p, items)
-                ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
-                    AutoChopTask.dropSquare:getX(),
-                    AutoChopTask.dropSquare:getY(),
-                    AutoChopTask.dropSquare:getZ()))
-                queueDeliver(p, items)
+                local inv = p:getInventory()
+                local cur = inv:getCapacityWeight()
+                local max = inv:getMaxWeight()
+                local heavy = (cur >= max * AutoChopTask.WEIGHT_FULL_FRACTION)
+                if heavy then
+                    ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
+                        AutoChopTask.dropSquare:getX(),
+                        AutoChopTask.dropSquare:getY(),
+                        AutoChopTask.dropSquare:getZ()))
+                    queueDeliver(p, items)
+                else
+                    ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
+                        AutoChopTask.dropSquare:getX(),
+                        AutoChopTask.dropSquare:getY(),
+                        AutoChopTask.dropSquare:getZ()))
+                    queueDeliver(p, items)
+                end
+            else
+                AutoChopTask.currentTree = nil
+                AutoChopTask.phase = "moveAndChop"
             end
-            -- After haul queue done, we'll clear currentTree in the next phase
+            AutoChopTask.idleTicks = 0
         end
     elseif AutoChopTask.phase == "haul" then
-        -- Haul queue completed
         AutoChopTask.currentTree = nil
         AutoChopTask.phase = "moveAndChop"
+        AutoChopTask.idleTicks = 0
     end
 end
