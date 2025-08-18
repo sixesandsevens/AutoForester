@@ -1,3 +1,5 @@
+local AFCore = require("AutoForester_Core")
+
 local function say(pi, txt)
   local p = getSpecificPlayer and getSpecificPlayer(pi or 0)
   if p and p.Say then p:Say(txt) end
@@ -17,33 +19,24 @@ local function getSafeSquare(pi, wos)
   return p and p:getSquare() or nil
 end
 
-local function core()
-  local ok, mod = pcall(require, "AutoForester_Core")
-  if not ok or type(mod) ~= "table" then
-    print("[AutoForester][ERROR] require Core failed: "..tostring(mod))
-    return nil
-  end
-  return mod
-end
-
 local function addMenu(pi, context, wos, test)
   context:addOption("AutoForester: Debug (hook loaded)", nil, function() say(pi,"AF: hook OK") end)
   if test then return end
   local sq = getSafeSquare(pi, wos)
 
   context:addOption("Designate Wood Pile Here", sq, function(targetSq)
-    local c=core(); if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
+    local c = AFCore; if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
     targetSq = targetSq or getSafeSquare(pi, wos)
     if targetSq then c.setStockpile(targetSq); say(pi,"Wood pile set.") end
   end)
 
   context:addOption("Auto-Chop Nearby Trees", sq, function()
-    local c=core(); if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
+    local c = AFCore; if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
     local p = getSpecificPlayer(pi or 0); if not p then say(pi,"No player"); return end
     c.startJob(p)
   end)
 
-  local c = core()
+  local c = AFCore
   if c and c.hasStockpile() then
     context:addOption("Clear Wood Pile Marker", nil, function() c.clearStockpile(); say(pi,"Wood pile cleared.") end)
   end
