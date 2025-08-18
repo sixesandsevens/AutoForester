@@ -1,4 +1,5 @@
 name=AutoForester (B42)
-id=AutoForester
-description=Auto-chop nearby trees, collect drops, and deliver to a designated pile.
-poster=poster.png
+id=AutoForesterB42
+description=Singleplayer automation: chop nearby trees and haul logs to a designated pile. Build 42.
+version=0.1
+author=AutoForester Team
