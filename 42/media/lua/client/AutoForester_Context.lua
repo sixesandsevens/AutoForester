@@ -1,81 +1,81 @@
--- AutoForester context menu hook (ultra-defensive)
+-- Context menu hook (robust + lazy-require)
+local function dbg(msg) print("[AutoForester] "..tostring(msg)) end
+dbg("Context file loaded")
 
-local ok, AFCore = pcall(require, "AutoForester_Core")
-if not ok then
-    print("[AutoForester][ERROR] Failed to require AutoForester_Core: " .. tostring(AFCore))
-    AFCore = nil
+local function getSafeSquare(playerIndex, worldobjects)
+  -- mouse
+  local sq = getMouseSquare and getMouseSquare() or nil
+  if sq then return sq end
+  -- worldobjects
+  if worldobjects then
+    local first = worldobjects.get and worldobjects:get(0) or worldobjects[1]
+    if first and first.getSquare then
+      local s = first:getSquare()
+      if s then return s end
+    end
+  end
+  -- player
+  local p = getSpecificPlayer and getSpecificPlayer(playerIndex or 0)
+  if p and p.getSquare then return p:getSquare() end
+  return nil
 end
 
-local function getClickedSquare()
-    -- Always safe-guard: sometimes vanilla passes us an empty worldobjects list
-    local sq = getMouseSquare and getMouseSquare() or nil
-    if sq and sq.getX then return sq end
+local function lazyCore()
+  local ok, mod = pcall(require, "AutoForester_Core")
+  if not ok then
+    print("[AutoForester][WARN] Core not available: "..tostring(mod))
     return nil
-end
-
-local function getSafeSquare(playerIndex, context, worldobjects, test)
-    -- 1) Under the mouse
-    local sq = getClickedSquare()
-    if sq then return sq end
-
-    -- 2) From the worldobjects list (may be {}, or contain non-IsoObjects)
-    if worldobjects then
-        -- worldobjects can be a Lua table or a Kahlua list; use length + iteration
-        local first = worldobjects[1]
-        if not first then
-            -- try a generic iteration in case it's a Kahlua table
-            for _, obj in pairs(worldobjects) do first = obj; break end
-        end
-        if first and first.getSquare then
-            local s = first:getSquare()
-            if s then return s end
-        end
-    end
-
-    -- 3) From the player
-    local p = getSpecificPlayer and getSpecificPlayer(playerIndex or 0) or nil
-    if p and p.getSquare then
-        local s = p:getSquare()
-        if s then return s end
-    end
-
-    return nil
+  end
+  return mod
 end
 
 local function addContextMenuOptions(playerIndex, context, worldobjects, test)
-    -- Always add a tiny debug entry so we know the hook ran
-    context:addOption("AutoForester: Debug (hook loaded)", nil, function()
-        local p = getSpecificPlayer and getSpecificPlayer(playerIndex or 0)
-        if p and p.Say then p:Say("AutoForester hook OK") end
+  -- Prove hook is alive (always add)
+  context:addOption("AutoForester: Debug (hook loaded)", nil, function()
+    local p = getSpecificPlayer(playerIndex or 0)
+    if p and p.Say then p:Say("AF: hook OK") end
+  end)
+
+  if test then return end
+
+  local sq = getSafeSquare(playerIndex, worldobjects)
+  -- show options even if we couldn't resolve a square yet; the callbacks re-resolve
+  context:addOption("Designate Wood Pile Here", sq, function(targetSq)
+    local core = lazyCore(); if not core then return end
+    targetSq = targetSq or getSafeSquare(playerIndex, worldobjects)
+    if targetSq then core.setStockpile(targetSq) end
+  end)
+
+  context:addOption("Auto-Chop Nearby Trees", sq, function()
+    local core = lazyCore(); if not core then return end
+    local p = getSpecificPlayer(playerIndex or 0)
+    if p then core.startJob(p) end
+  end)
+
+  local core = lazyCore()
+  if core and core.hasStockpile() then
+    context:addOption("Clear Wood Pile Marker", nil, function()
+      core.clearStockpile()
     end)
-
-    if test then return end  -- the engine calls us once with test=true; don't do real work
-
-    -- Now resolve a safe square; if we still don't have one, bail quietly.
-    local sq = getSafeSquare(playerIndex, context, worldobjects, test)
-    if not sq then return end
-
-    local AFCore_ok = type(AFCore) == "table"
-    if not AFCore_ok then return end
-
-    context:addOption("Designate Wood Pile Here", sq, function(targetSq)
-        AFCore.setStockpile(targetSq)
-    end)
-
-    if AFCore.hasStockpile and AFCore.hasStockpile() then
-        context:addOption("Clear Wood Pile Marker", nil, function()
-            AFCore.clearStockpile()
-        end)
-    end
-
-    context:addOption("Auto-Chop Nearby Trees", sq, function()
-        local player = getSpecificPlayer and getSpecificPlayer(playerIndex or 0)
-        if not player then return end
-        AFCore.startJob(player)
-    end)
+  end
 end
 
-Events.OnFillWorldObjectContextMenu.Add(addContextMenuOptions)
-
-print("[AutoForester] Context file loaded")
-
+-- Safe, deferred registration (handles load order)
+local function registerAFContext()
+  if Events and Events.OnFillWorldObjectContextMenu and Events.OnFillWorldObjectContextMenu.Add then
+    Events.OnFillWorldObjectContextMenu.Add(addContextMenuOptions)
+    print("[AutoForester] Context hook registered")
+  else
+    if Events and Events.OnCreatePlayer and Events.OnCreatePlayer.Add then
+      Events.OnCreatePlayer.Add(function()
+        if Events.OnFillWorldObjectContextMenu and Events.OnFillWorldObjectContextMenu.Add then
+          Events.OnFillWorldObjectContextMenu.Add(addContextMenuOptions)
+          print("[AutoForester] Context hook registered (OnCreatePlayer)")
+        else
+          print("[AutoForester][WARN] Context event unavailable; skipping")
+        end
+      end)
+    end
+  end
+end
+Events.OnGameStart.Add(registerAFContext)
