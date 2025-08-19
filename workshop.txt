@@ -1,0 +1,5 @@
+version=1
+title=AutoChop Singleplayer Automation
+description=Automates tree chopping and log hauling in singleplayer (Build 42).
+id=1234567890
+modID=auto_chop_mod_b42

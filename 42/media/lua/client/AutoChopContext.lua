@@ -3,7 +3,7 @@
 
 require "AutoChopTask"
 
-local pending = { chop=nil, gather=nil }
+local pending = pending or { chop=nil, gather=nil }
 
 local function getSafeSquare(playerIndex, worldObjects)
     local ms = _G.getMouseSquare
@@ -60,6 +60,17 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
     context:addOption("Cancel AutoForester Job", nil, function()
         if AutoChopTask and AutoChopTask.cancel then AutoChopTask.cancel("user cancel") end
         player:Say("Canceled.")
+    end)
+
+    context:addOption("AF: Dump State (debug)", nil, function()
+        local p = getSpecificPlayer(playerIndex)
+        local q = ISTimedActionQueue.getTimedActionQueue(p)
+        p:Say(string.format("AF phase=%s active=%s queue=%d trees=%d idle=%d",
+            tostring(AutoChopTask.phase),
+            tostring(AutoChopTask.active),
+            (q and q:size() or 0),
+            (AutoChopTask.trees and #AutoChopTask.trees or 0),
+            AutoChopTask.idleTicks))
     end)
 
     context:addOption("Chop Area: Set Corner", nil, function()
