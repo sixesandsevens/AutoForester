@@ -216,23 +216,39 @@ local function queuePickupItems(p, itemList)
     end
 end
 
-local function queueDeliver(p, items)
-    if AutoChopTask.dropContainer then
-        -- transfer into container
-        for _, it in ipairs(items) do
-            ISTimedActionQueue.add(ISInventoryTransferAction:new(p, it, p:getInventory(), AutoChopTask.dropContainer))
+local function compactTreeList()
+    local keep = {}
+    for i = 1, #AutoChopTask.trees do
+        local t = AutoChopTask.trees[i]
+        if t and t:getSquare() then
+            keep[#keep + 1] = t
         end
-    else
-        -- drop to ground square (instant)
+    end
+    AutoChopTask.trees = keep
+end
+
+local function queueDeliver(p, items)
+    if not items or #items == 0 then return end
+
+    if AutoChopTask.dropSquare then
         ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
             AutoChopTask.dropSquare:getX(),
             AutoChopTask.dropSquare:getY(),
             AutoChopTask.dropSquare:getZ()))
+    end
+
+    if AutoChopTask.dropContainer then
         for _, it in ipairs(items) do
-            -- remove then add to ground
-            p:getInventory():Remove(it)
-            AutoChopTask.dropSquare:AddWorldInventoryItem(it, 0, 0, 0)
+            ISTimedActionQueue.add(ISInventoryTransferAction:new(
+                p, it, p:getInventory(), AutoChopTask.dropContainer))
         end
+    else
+        ISTimedActionQueue.add(AFInstant:new(p, function()
+            for _, it in ipairs(items) do
+                if p:getInventory():contains(it) then p:getInventory():Remove(it) end
+                AutoChopTask.dropSquare:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
+            end
+        end))
     end
 end
 
@@ -241,9 +257,9 @@ function AutoChopTask.update()
     if not AutoChopTask.active or not AutoChopTask.player then return end
     local p = AutoChopTask.player
     local q = ISTimedActionQueue.getTimedActionQueue(p)
-    if not q:isEmpty() then
+    if q and not q:isEmpty() then
         AutoChopTask.idleTicks = 0
-        return
+        return -- timed actions are processing
     end
 
     AutoChopTask.idleTicks = AutoChopTask.idleTicks + 1
@@ -294,22 +310,14 @@ function AutoChopTask.update()
                 local cur = inv:getCapacityWeight()
                 local max = inv:getMaxWeight()
                 local heavy = (cur >= max * AutoChopTask.WEIGHT_FULL_FRACTION)
-                if heavy then
-                    ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
-                        AutoChopTask.dropSquare:getX(),
-                        AutoChopTask.dropSquare:getY(),
-                        AutoChopTask.dropSquare:getZ()))
-                    queueDeliver(p, items)
-                else
-                    ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
-                        AutoChopTask.dropSquare:getX(),
-                        AutoChopTask.dropSquare:getY(),
-                        AutoChopTask.dropSquare:getZ()))
-                    queueDeliver(p, items)
-                end
+                queueDeliver(p, items)
             else
                 AutoChopTask.currentTree = nil
                 AutoChopTask.phase = "moveAndChop"
+                compactTreeList()
+                if #AutoChopTask.trees == 0 and AutoChopTask.chopRect then
+                    AutoChopTask.trees = findTreesFromAreas(AutoChopTask.centerSq, AutoChopTask.RADIUS) or {}
+                end
             end
             AutoChopTask.idleTicks = 0
         end
@@ -317,5 +325,9 @@ function AutoChopTask.update()
         AutoChopTask.currentTree = nil
         AutoChopTask.phase = "moveAndChop"
         AutoChopTask.idleTicks = 0
+        compactTreeList()
+        if #AutoChopTask.trees == 0 and AutoChopTask.chopRect then
+            AutoChopTask.trees = findTreesFromAreas(AutoChopTask.centerSq, AutoChopTask.RADIUS) or {}
+        end
     end
 end
