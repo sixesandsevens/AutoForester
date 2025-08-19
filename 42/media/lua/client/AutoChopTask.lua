@@ -31,6 +31,10 @@ local function dbg(msg)
     print("[AutoForester] " .. tostring(msg))
 end
 
+local function log(...)
+    print("[AutoForester]", table.concat({...}, " "))
+end
+
 local function say(p, txt)
     if p and p.Say then p:Say(txt) end
 end
@@ -148,7 +152,9 @@ local function dropAtCurrentSquare(p, allowedTypes)
         return
     end
 
+    log("DROP_NOW start")
     local inv = p:getInventory()
+    log("inv pre", inv:getItems():size())
     local items = inv:getItems()
     local toDrop = {}
     for i = 0, items:size() - 1 do
@@ -166,11 +172,13 @@ local function dropAtCurrentSquare(p, allowedTypes)
         #toDrop, sq:getX(), sq:getY()))
     ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq:getX(), sq:getY(), sq:getZ()))
     ISTimedActionQueue.add(AFInstant:new(p, function()
+        log("drop at", sq:getX(), sq:getY(), sq:getZ(), "count", #toDrop)
         for _, it in ipairs(toDrop) do
             if inv:contains(it) then inv:Remove(it) end
             sq:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
         end
     end))
+    log("DROP_NOW enqueued")
 end
 
 -- ===== Public API =====
@@ -285,6 +293,7 @@ local function compactTreeList()
 end
 
 local function queueDeliver(p, items)
+    log("DELIVER start items", #items, "haveContainer", AutoChopTask.dropContainer and 1 or 0)
     if not items or #items == 0 then
         dbg("queueDeliver: no items to deliver")
         return
@@ -293,6 +302,7 @@ local function queueDeliver(p, items)
     dbg("queueDeliver: delivering " .. tostring(#items) .. " item(s)")
 
     if AutoChopTask.dropSquare then
+        log("walk to pile", AutoChopTask.dropSquare:getX(), AutoChopTask.dropSquare:getY(), AutoChopTask.dropSquare:getZ())
         dbg(string.format("queueDeliver: walking to drop square %d,%d",
             AutoChopTask.dropSquare:getX(), AutoChopTask.dropSquare:getY()))
         ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
@@ -312,6 +322,7 @@ local function queueDeliver(p, items)
     else
         dbg("queueDeliver: dropping to ground")
         ISTimedActionQueue.add(AFInstant:new(p, function()
+            log("placing at pile", AutoChopTask.dropSquare:getX(), AutoChopTask.dropSquare:getY(), AutoChopTask.dropSquare:getZ(), "items", #items)
             for _, it in ipairs(items) do
                 if p:getInventory():contains(it) then p:getInventory():Remove(it) end
                 AutoChopTask.dropSquare:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
@@ -323,13 +334,13 @@ end
 
 -- ===== Tick-driven state machine =====
 function AutoChopTask.update()
-    if not AutoChopTask.active or not AutoChopTask.player then return end
     local p = AutoChopTask.player
+    if not p then return end
     local q = ISTimedActionQueue.getTimedActionQueue(p)
-    if q and not q:isEmpty() then
-        AutoChopTask.idleTicks = 0
-        return -- timed actions are processing
+    if not q:isEmpty() then
+        return -- let current actions finish to avoid re-entry
     end
+    if not AutoChopTask.active then return end
 
     AutoChopTask.idleTicks = AutoChopTask.idleTicks + 1
     if AutoChopTask.idleTicks > AutoChopTask.IDLE_TICK_LIMIT then

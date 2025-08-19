@@ -1,6 +1,22 @@
 AF_SelectArea = AF_SelectArea or {}
 local Tool = AF_SelectArea
 
+local function getP()
+    return getSpecificPlayer and getSpecificPlayer(0) or getPlayer()
+end
+
+local function safeMouseSquare()
+    -- Robust against nils while opening menus / UI focus changes
+    local mx, my = getMouseXScaled(), getMouseYScaled()
+    if not mx or not my then return nil end
+    local wx, wy = ISCoordConversion.ToWorld(mx, my, 0)
+    if not wx or not wy then return nil end
+    wx, wy = math.floor(wx), math.floor(wy)
+    local z = (getP() and getP():getZ()) or 0
+    local cell = getCell()
+    return cell and cell:getGridSquare(wx, wy, z) or nil
+end
+
 Tool.active = false
 Tool.kind = nil         -- "chop" | "gather"
 Tool.startSq = nil
@@ -51,32 +67,18 @@ function Tool.begin(kind)
     getPlayer():Say("Drag to select "..kind.." area.")
 end
 
-local function getMouseSquare()
-    local player = getPlayer()
-    if not player then return nil end
-
-    local mx, my = getMouseXScaled(), getMouseYScaled()
-    local wx, wy = ISCoordConversion.ToWorld(mx, my, 0)
-    if not wx or not wy then return nil end
-
-    return getCell():getGridSquare(math.floor(wx), math.floor(wy), player:getZ())
-end
-
 function Tool.onMouseDown(x,y)
     if not Tool.active then return false end
-
-    local player = getPlayer()
-    if not player or not getMouseWorldX or not getMouseWorldX() then
-        return false
-    end
-
-    Tool.startSq = getMouseSquare()
+    local sq = safeMouseSquare()
+    if not sq then return false end
+    Tool.startSq = sq
     return false
 end
 
 function Tool.onMouseMove(dx,dy)
     if not Tool.active or not Tool.startSq then return false end
-    local cur = getMouseSquare()
+    local cur = safeMouseSquare()
+    if not cur then return false end
     local rect = makeRect(Tool.startSq, cur)
     Tool.rect = rect
     addHighlight(rect)
@@ -84,20 +86,19 @@ function Tool.onMouseMove(dx,dy)
 end
 
 function Tool.onMouseUp(x,y)
-    if not Tool.active then return false end
-    local cur = getMouseSquare()
+    if not Tool.active or not Tool.startSq then return false end
+    local cur = safeMouseSquare()
+    if not cur then return false end
     Tool.rect = makeRect(Tool.startSq, cur)
     addHighlight(Tool.rect)
     if Tool.kind == "chop" then
         AutoChopTask.chopRect = Tool.rect
-        getPlayer():Say("Chop area set.")
+        getP():Say("Chop area set.")
     else
         AutoChopTask.gatherRect = Tool.rect
-        getPlayer():Say("Gather area set.")
+        getP():Say("Gather area set.")
     end
-    Tool.active = false
-    Tool.kind = nil
-    Tool.startSq = nil
+    Tool.active, Tool.kind, Tool.startSq = false, nil, nil
     return false
 end
 
