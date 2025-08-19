@@ -6,7 +6,10 @@ AutoChopTask = AutoChopTask or {}
 -- ===== CONFIG =====
 AutoChopTask.RADIUS = 12                -- tiles around center to search for trees
 AutoChopTask.PICKUP_ADJ_RADIUS = 1      -- sweep 3x3 around stump to find logs
-AutoChopTask.HAUL_ITEM_TYPES = { Log=true, TreeBranch=true, Twigs=true } -- which items to haul
+AutoChopTask.DROP_AFTER_EACH_TREE = true   -- immediate ground drop at stump
+AutoChopTask.HAUL_ITEM_TYPES = AutoChopTask.HAUL_ITEM_TYPES or {
+    Log = true, Plank = true, Twigs = true, TreeBranch = true, Stick = true,
+}
 AutoChopTask.MAX_TREES_PER_RUN = 25     -- safety cap per run to avoid 100+ action spam
 AutoChopTask.chopRect = nil   -- {x1,y1,x2,y2,z}
 AutoChopTask.gatherRect = nil -- optional {x1,y1,x2,y2,z}
@@ -32,16 +35,36 @@ local function say(p, txt)
     if p and p.Say then p:Say(txt) end
 end
 
-local function getAxe(player)
-    if not player then return nil end
-    local hand = player:getPrimaryHandItem()
-    if not hand then return nil end
-    -- Prefer category check, fallback to name contains "axe"
-    local cats = hand.getCategories and hand:getCategories() or nil
-    if cats and cats:contains("Axe") then return hand end
-    local dn = string.lower(hand:getDisplayName() or "")
-    if dn:find("axe") then return hand end
-    return nil
+local function isAxe(item)
+    if not item then return false end
+    local cats = item:getCategories()
+    if cats then
+        for i = 0, cats:size() - 1 do
+            if tostring(cats:get(i)) == "Axe" then return true end
+        end
+    end
+    local t = item:getType() or ""
+    return t:lower():find("axe") ~= nil
+end
+
+function AutoChopTask.ensureAxeEquipped(p)
+    local primary = p:getPrimaryHandItem()
+    if isAxe(primary) then return true end
+
+    local inv = p:getInventory()
+    local best, bestCond = nil, -1
+    local all = inv:getItems()
+    for i = 0, all:size() - 1 do
+        local it = all:get(i)
+        if isAxe(it) then
+            local c = it:getCondition() or 0
+            if c > bestCond then best, bestCond = it, c end
+        end
+    end
+    if not best then return false end
+
+    ISTimedActionQueue.add(ISEquipWeaponAction:new(p, best, 50, true, true))
+    return true
 end
 
 local function squaresAround(sq, r)
@@ -111,6 +134,29 @@ require "TimedActions/ISWalkToTimedAction"
 require "TimedActions/ISChopTreeAction"
 require "TimedActions/ISGrabItemAction"
 require "TimedActions/ISInventoryTransferAction"
+require "TimedActions/ISEquipWeaponAction"
+
+local function dropAtCurrentSquare(p, allowedTypes)
+    local sq = p:getSquare(); if not sq then return end
+    local inv = p:getInventory()
+    local items = inv:getItems()
+    local toDrop = {}
+    for i = 0, items:size() - 1 do
+        local it = items:get(i)
+        if it and allowedTypes[it:getType()] then
+            table.insert(toDrop, it)
+        end
+    end
+    if #toDrop == 0 then return end
+
+    ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq:getX(), sq:getY(), sq:getZ()))
+    ISTimedActionQueue.add(AFInstant:new(p, function()
+        for _, it in ipairs(toDrop) do
+            if inv:contains(it) then inv:Remove(it) end
+            sq:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
+        end
+    end))
+end
 
 -- ===== Public API =====
 
@@ -143,10 +189,6 @@ function AutoChopTask.start(playerObj, centerSquare)
         else
             AutoChopTask.cancel("stale-active before start")
         end
-    end
-    if not getAxe(playerObj) then
-        say(playerObj, "Equip an axe first.")
-        return
     end
     AutoChopTask.player = playerObj
     AutoChopTask.centerSq = centerSquare or playerObj:getCurrentSquare()
@@ -296,6 +338,9 @@ function AutoChopTask.update()
             AutoChopTask.idleTicks = 0
         else
             local tsq = AutoChopTask.currentTree and AutoChopTask.currentTree:getSquare()
+            if AutoChopTask.DROP_AFTER_EACH_TREE then
+                dropAtCurrentSquare(p, AutoChopTask.HAUL_ITEM_TYPES)
+            end
             AutoChopTask.phase = "haul"
             local items
             if AutoChopTask.gatherRect then
