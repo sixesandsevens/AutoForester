@@ -137,7 +137,17 @@ require "TimedActions/ISInventoryTransferAction"
 require "TimedActions/ISEquipWeaponAction"
 
 local function dropAtCurrentSquare(p, allowedTypes)
-    local sq = p:getSquare(); if not sq then return end
+    if not p then
+        dbg("dropAtCurrentSquare: no player")
+        return
+    end
+
+    local sq = p:getSquare()
+    if not sq then
+        dbg("dropAtCurrentSquare: player has no square")
+        return
+    end
+
     local inv = p:getInventory()
     local items = inv:getItems()
     local toDrop = {}
@@ -147,8 +157,13 @@ local function dropAtCurrentSquare(p, allowedTypes)
             table.insert(toDrop, it)
         end
     end
-    if #toDrop == 0 then return end
+    if #toDrop == 0 then
+        dbg("dropAtCurrentSquare: no items to drop")
+        return
+    end
 
+    dbg(string.format("dropAtCurrentSquare: dropping %d item(s) at %d,%d",
+        #toDrop, sq:getX(), sq:getY()))
     ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq:getX(), sq:getY(), sq:getZ()))
     ISTimedActionQueue.add(AFInstant:new(p, function()
         for _, it in ipairs(toDrop) do
@@ -270,26 +285,38 @@ local function compactTreeList()
 end
 
 local function queueDeliver(p, items)
-    if not items or #items == 0 then return end
+    if not items or #items == 0 then
+        dbg("queueDeliver: no items to deliver")
+        return
+    end
+
+    dbg("queueDeliver: delivering " .. tostring(#items) .. " item(s)")
 
     if AutoChopTask.dropSquare then
+        dbg(string.format("queueDeliver: walking to drop square %d,%d",
+            AutoChopTask.dropSquare:getX(), AutoChopTask.dropSquare:getY()))
         ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
             AutoChopTask.dropSquare:getX(),
             AutoChopTask.dropSquare:getY(),
             AutoChopTask.dropSquare:getZ()))
+    else
+        dbg("queueDeliver: no drop square set")
     end
 
     if AutoChopTask.dropContainer then
+        dbg("queueDeliver: dropping into container")
         for _, it in ipairs(items) do
             ISTimedActionQueue.add(ISInventoryTransferAction:new(
                 p, it, p:getInventory(), AutoChopTask.dropContainer))
         end
     else
+        dbg("queueDeliver: dropping to ground")
         ISTimedActionQueue.add(AFInstant:new(p, function()
             for _, it in ipairs(items) do
                 if p:getInventory():contains(it) then p:getInventory():Remove(it) end
                 AutoChopTask.dropSquare:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
             end
+            dbg("queueDeliver: ground drop complete")
         end))
     end
 end

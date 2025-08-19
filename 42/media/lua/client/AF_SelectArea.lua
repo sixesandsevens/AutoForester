@@ -52,13 +52,24 @@ function Tool.begin(kind)
 end
 
 local function getMouseSquare()
+    local player = getPlayer()
+    if not player then return nil end
+
     local mx, my = getMouseXScaled(), getMouseYScaled()
     local wx, wy = ISCoordConversion.ToWorld(mx, my, 0)
-    return getCell():getGridSquare(math.floor(wx), math.floor(wy), getPlayer():getZ())
+    if not wx or not wy then return nil end
+
+    return getCell():getGridSquare(math.floor(wx), math.floor(wy), player:getZ())
 end
 
 function Tool.onMouseDown(x,y)
     if not Tool.active then return false end
+
+    local player = getPlayer()
+    if not player or not getMouseWorldX or not getMouseWorldX() then
+        return false
+    end
+
     Tool.startSq = getMouseSquare()
     return false
 end
