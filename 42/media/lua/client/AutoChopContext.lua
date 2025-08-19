@@ -2,8 +2,7 @@
 -- AutoChopContext.lua: right-click menu for AutoForester (B42)
 
 require "AutoChopTask"
-
-local pending = pending or { chop=nil, gather=nil }
+require "AF_SelectArea"
 
 local function getSafeSquare(playerIndex, worldObjects)
     local ms = _G.getMouseSquare
@@ -73,44 +72,25 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
             AutoChopTask.idleTicks))
     end)
 
-    context:addOption("Chop Area: Set Corner", nil, function()
-        local first = getSafeSquare(playerIndex, worldObjects)
-        if not first then return end
-        if not pending.chop then
-            pending.chop = first
-            player:Say("Chop area: first corner set. Right-click again → Chop Area: Set Corner for second.")
-        else
-            AutoChopTask.setChopRect(pending.chop, first)
-            pending.chop = nil
-            player:Say("Chop area set.")
-        end
+    context:addOption("Select Chop Area (drag)", nil, function()
+        AF_SelectArea.begin("chop")
     end)
 
-    context:addOption("Gather Area: Set Corner", nil, function()
-        local first = getSafeSquare(playerIndex, worldObjects)
-        if not first then return end
-        if not pending.gather then
-            pending.gather = first
-            player:Say("Gather area: first corner set. Right-click again → Gather Area: Set Corner for second.")
-        else
-            AutoChopTask.setGatherRect(pending.gather, first)
-            pending.gather = nil
-            player:Say("Gather area set.")
-        end
+    context:addOption("Select Gather Area (drag)", nil, function()
+        AF_SelectArea.begin("gather")
     end)
 
     -- Auto chop
     local txt = string.format("Auto-Chop Trees (radius %d)", AutoChopTask.RADIUS)
-    local opt = context:addOption(txt, sq, function(targetSq)
+    context:addOption(txt, sq, function(targetSq)
         targetSq = targetSq or getSafeSquare(playerIndex, worldObjects)
-        AutoChopTask.start(player, targetSq)
+        local p = getSpecificPlayer(playerIndex)
+        if not AutoChopTask.ensureAxeEquipped(p) then
+            p:Say("I need an axe.")
+            return
+        end
+        AutoChopTask.start(p, targetSq)
     end)
-    if not (player and AutoChopTask and (AutoChopTask.getAxe and AutoChopTask.getAxe(player))) then
-        opt.notAvailable = true
-        local tip = ISToolTip:new()
-        tip.description = "Equip an axe to use this."
-        opt.toolTip = tip
-    end
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFillWorld)
