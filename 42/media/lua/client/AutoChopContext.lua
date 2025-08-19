@@ -85,9 +85,34 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
     context:addOption(txt, sq, function(targetSq)
         targetSq = targetSq or getSafeSquare(playerIndex, worldObjects)
         local p = getSpecificPlayer(playerIndex)
-        if not AutoChopTask.ensureAxeEquipped(p) then
-            p:Say("I need an axe.")
-            return
+        local function isAxe(it)
+            if not it then return false end
+            local cats = it:getCategories()
+            if cats then for i=0,cats:size()-1 do if tostring(cats:get(i))=="Axe" then return true end end end
+            return (it:getType() or ""):lower():find("axe") ~= nil
+        end
+
+        local primary = p:getPrimaryHandItem()
+        if not isAxe(primary) then
+            -- auto-equip best axe from inventory
+            local inv, best, bestC = p:getInventory(), nil, -1
+            local arr = inv and inv:getItems()
+            if arr then
+                for i=0, arr:size()-1 do
+                    local it = arr:get(i)
+                    if isAxe(it) then
+                        local c = it:getCondition() or 0
+                        if c > bestC then best, bestC = it, c end
+                    end
+                end
+            end
+            if best then
+                ISTimedActionQueue.add(ISEquipWeaponAction:new(p, best, 50, true, true))
+                p:Say("Equipping axe…")
+            else
+                p:Say("I need an axe.")
+                return
+            end
         end
         AutoChopTask.start(p, targetSq)
     end)
