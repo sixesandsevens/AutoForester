@@ -1,46 +1,57 @@
--- AutoForester_Context.lua
 require "AutoForester_Core"
 require "AF_SelectAdapter"
+require "AutoChopTask"
+require "AutoForester_Debug"
 
 local function addMenu(playerIndex, context, worldObjects, test)
   if test then return end
+  AFLOG("menu", "playerIndex=", tostring(playerIndex), "wos#=", tostring(worldObjects and #worldObjects or 0))
   local p = getSpecificPlayer(playerIndex or 0); if not p then return end
 
-  -- Designate wood pile (uses selection adapter for a single square)
-  context:addOption("Designate Wood Pile Here", worldObjects, function(wos, pObj)
-    local pp = pObj or p
-    AF_Select.pickSquare(wos, pp, function(sq)
-      if not sq then SAY(pp,"No tile."); return end
-      AFCore.setStockpile(sq)
-      SAY(pp,"Wood pile set.")
+  context:addOption("Designate Wood Pile Here", worldObjects, function()
+    AF_Select.pickSquare(worldObjects, p, function(sq)
+      if not sq then p:Say("No tile."); return end
+      AFCore.pileSq = sq
+      if sq.setHighlighted then
+        sq:setHighlighted(true)
+        if sq.setHighlightColor then sq:setHighlightColor(0.95,0.85,0.2) end
+      end
+      p:Say("Wood pile set.")
+      AFLOG("pile", "sq=", tostring(sq), sq and (sq:getX()..","..sq:getY()..","..sq:getZ()) or "nil")
     end)
-  end, p)
+  end)
 
-  -- Drag & release areas
-  context:addOption("Chop Area: Drag & Release", worldObjects, function(wos, pObj)
-    local pp = pObj or p
-    AF_Select.pickArea(wos, pp, function(rect, area)
-      if not rect then SAY(pp,"No area."); return end
-      AFCore.chopRect = rect
-      SAY(pp, ("Chop area: %dx%d"):format(area.areaWidth, area.areaHeight))
+  context:addOption("Chop Area: Drag & Release", worldObjects, function()
+    AF_Select.pickArea(worldObjects, p, function(rect, area)
+      if not rect then p:Say("No area."); return end
+      AutoChopTask.chopRect = rect
+      AFLOG("select", "rect=", rect and (rect[1]..","..rect[2].."->"..rect[3]..","..rect[4]) or "nil")
+      p:Say(("Chop area: %dx%d"):format(area.areaWidth, area.areaHeight))
     end, "chop")
-  end, p)
+  end)
 
-  context:addOption("Gather Area: Drag & Release", worldObjects, function(wos, pObj)
-    local pp = pObj or p
-    AF_Select.pickArea(wos, pp, function(rect, area)
-      if not rect then SAY(pp,"No area."); return end
-      AFCore.gatherRect = rect
-      SAY(pp, ("Gather area: %dx%d"):format(area.areaWidth, area.areaHeight))
+  context:addOption("Gather Area: Drag & Release", worldObjects, function()
+    AF_Select.pickArea(worldObjects, p, function(rect, area)
+      if not rect then p:Say("No area."); return end
+      AutoChopTask.gatherRect = rect
+      AFLOG("select", "rect=", rect and (rect[1]..","..rect[2].."->"..rect[3]..","..rect[4]) or "nil")
+      p:Say(("Gather area: %dx%d"):format(area.areaWidth, area.areaHeight))
     end, "gather")
-  end, p)
+  end)
 
-  context:addOption("Start AutoForester (Area)", worldObjects, function(wos, pObj)
-    local pp = pObj or p
-    AFCore.startAreaJob(pp, AFCore.chopRect, AFCore.gatherRect)
-  end, p)
+  context:addOption("Start AutoForester (Area)", worldObjects, function()
+    AutoChopTask.startAreaJob(p)
+  end)
+
+  context:addOption("AF: Dump State (debug)", worldObjects, function()
+    local c = AutoChopTask
+    AFSAY(p, ("phase=area trees=%s chopRect=%s gatherRect=%s pile=%s"):format(
+      "n/a",
+      tostring(c and c.chopRect),
+      tostring(c and c.gatherRect),
+      tostring(AFCore.getStockpile())
+    ))
+  end)
 end
 
--- Make sure we only ever have one hook alive
-Events.OnFillWorldObjectContextMenu.Remove(addMenu)
 Events.OnFillWorldObjectContextMenu.Add(addMenu)

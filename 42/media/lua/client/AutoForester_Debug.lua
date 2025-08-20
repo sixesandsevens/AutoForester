@@ -1,16 +1,12 @@
--- AutoForester_Debug.lua
-AFDBG = { on = true }  -- flip to false to silence
-
-local prefix = "[AF] "
+AFDBG = { on = true, chat = true }
 
 function AFLOG(tag, ...)
-    if not AFDBG.on then return end
-    local msg = table.concat({ ... }, " ")
-    print(prefix .. tag .. "> " .. msg)
-    if getPlayer() then getPlayer():Say(tag .. ": " .. msg) end
+  if not AFDBG.on then return end
+  local parts = {}
+  for i=1,select("#", ...) do parts[i] = tostring(select(i, ...)) end
+  print(("[AF] %s: %s"):format(tag, table.concat(parts, " ")))
 end
 
 function AFSAY(p, msg)
-    if not p then return end
-    if AFDBG.on then p:Say(msg) end
+  if AFDBG.chat and p then p:Say(tostring(msg)) end
 end

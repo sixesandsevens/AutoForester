@@ -1,23 +1,27 @@
 -- AF_SelectAdapter.lua
+local hasASS, ASS = pcall(require, "JB_ASSUtils")
 AF_Select = AF_Select or {}
 
-local function hasJB() return type(JB_ASSUtils) == "table" end
-
--- Pick a single square (used by “Designate wood pile”)
 function AF_Select.pickSquare(worldObjects, p, cb)
-  if hasJB() and JB_ASSUtils.SelectSingleSquare then
-    return JB_ASSUtils.SelectSingleSquare(worldObjects, p, cb)
+  if hasASS and ASS.SelectSingleSquare then
+    return ASS.SelectSingleSquare(worldObjects, p, cb)
   end
-  -- Fallback: use current mouse square immediately
-  local sq = AF_getContextSquare(worldObjects)
-  cb(sq, p)
+  local mx,my = getMouseXScaled(), getMouseYScaled()
+  local z = p and p:getZ() or 0
+  local wx = ISCoordConversion.ToWorldX(mx,my,0)
+  local wy = ISCoordConversion.ToWorldY(mx,my,0)
+  local sq = getCell():getGridSquare(math.floor(wx), math.floor(wy), z)
+  return cb(sq)
 end
 
--- Pick an area (drag & release). If JB exists, delegate; else fallback tool.
-function AF_Select.pickArea(worldObjects, p, cb, kind)
-  if hasJB() and JB_ASSUtils.SelectArea then
-    return JB_ASSUtils.SelectArea(worldObjects, p, cb, kind)
+function AF_Select.pickArea(worldObjects, p, cb, tag)
+  if hasASS and ASS.SelectSquareArea then
+    return ASS.SelectSquareArea(worldObjects, p, function(area)
+      if not area or not area.minX then cb(nil); return end
+      cb({area.minX, area.minY, area.maxX, area.maxY, area.z or p:getZ()}, area)
+    end, tag)
   end
-  require "AF_SelectArea"      -- ensures fallback exists
-  AF_SelectArea.start(kind or "generic", function(rect, area) cb(rect, area) end)
+  require "AF_SelectArea"
+  AF_SelectArea.start(tag)
+  AF_SelectArea.onDone = function(rect, area) cb(rect, area) end
 end
