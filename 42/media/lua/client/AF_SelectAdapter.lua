@@ -1,30 +1,37 @@
--- AF_SelectAdapter.lua
-require "AutoForester_Debug"
-require "ISCoordConversion"
-local hasASS, ASS = pcall(require, "JB_ASSUtils")
+-- media/lua/client/AF_SelectAdapter.lua
+local ok, ASS = pcall(require, "JB_ASSUtils")
+local HAS_ASS = ok and type(ASS)=="table"
+
 AF_Select = AF_Select or {}
 
-function AF_Select.pickSquare(worldObjects, p, cb)
-  if hasASS and ASS.SelectSingleSquare then
-    return ASS.SelectSingleSquare(worldObjects, p, cb)
+-- Call: AF_Select.pickSquare(worldObjects, player, cb)
+function AF_Select.pickSquare(wos, p, cb)
+  if HAS_ASS and ASS.SelectSingleSquare then
+    return ASS.SelectSingleSquare(wos, p, function(sq) cb(sq) end)
+  else
+    -- fallback: mouse position now
+    local mx,my = getMouseXScaled(), getMouseYScaled()
+    local z = (p and p:getZ()) or 0
+    local wx = ISCoordConversion.ToWorldX(mx,my,z)
+    local wy = ISCoordConversion.ToWorldY(mx,my,z)
+    local cell = getCell(); if not cell then return cb(nil) end
+    return cb(cell:getGridSquare(math.floor(wx), math.floor(wy), z))
   end
-  local mx,my = getMouseXScaled(), getMouseYScaled()
-  local z = p and p:getZ() or 0
-  local wx = ISCoordConversion.ToWorldX(mx,my,0)
-  local wy = ISCoordConversion.ToWorldY(mx,my,0)
-  local sq = getCell():getGridSquare(math.floor(wx), math.floor(wy), z)
-  AFLOG("select", "mouse=", mx, ",", my, " world=", wx, ",", wy, " z=", z, " sq=", tostring(sq))
-  return cb(sq)
 end
 
-function AF_Select.pickArea(worldObjects, p, cb, tag)
-  if hasASS and ASS.SelectSquareArea then
-    return ASS.SelectSquareArea(worldObjects, p, function(area)
-      if not area or not area.minX then cb(nil); return end
-      cb({area.minX, area.minY, area.maxX, area.maxY, area.z or p:getZ()}, area)
+-- Call: AF_Select.pickArea(worldObjects, player, cb, tag)
+function AF_Select.pickArea(wos, p, cb, tag)
+  if HAS_ASS and ASS.SelectArea then
+    return ASS.SelectArea(wos, p, function(area)
+      if not area or not area.squares or area.numSquares==0 then cb(nil); return end
+      cb({area.minX, area.minY, area.maxX, area.maxY, area.z or (p and p:getZ()) or 0}, area)
     end, tag)
+  else
+    -- fallback tool
+    if not AF_SelectArea or not AF_SelectArea.start then
+      getPlayer():Say("Area tool not loaded."); cb(nil); return
+    end
+    AF_SelectArea.start(tag, p, cb) -- see next section
   end
-  require "AF_SelectArea"
-  AF_SelectArea.start(tag)
-  AF_SelectArea.onDone = function(rect, area) cb(rect, area) end
 end
+

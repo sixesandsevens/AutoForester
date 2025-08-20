@@ -45,17 +45,24 @@ end
 AFCore.pileSq = AFCore.pileSq or nil
 
 function AFCore.setStockpile(sq)
+  -- unhighlight previous
+  if AFCore.pileSq and AFCore.pileSq.setHighlighted then
+    AFCore.pileSq:setHighlighted(false)
+  end
   AFCore.pileSq = sq
   if sq and sq.setHighlighted then
     sq:setHighlighted(true)
-    if sq.setHighlightColor then sq:setHighlightColor(0.9,0.8,0.2) end
+    if sq.setHighlightColor then sq:setHighlightColor(0.9, 0.8, 0.2) end
   end
-  AFLOG("PILE","set", sq and sq:getX(), sq and sq:getY(), sq and sq:getZ())
+  AFLOG("PILE", "set at", sq and sq:getX(), sq and sq:getY(), sq and sq:getZ())
 end
 
 function AFCore.clearStockpile()
-  if AFCore.pileSq and AFCore.pileSq.setHighlighted then AFCore.pileSq:setHighlighted(false) end
+  if AFCore.pileSq and AFCore.pileSq.setHighlighted then
+    AFCore.pileSq:setHighlighted(false)
+  end
   AFCore.pileSq = nil
+  AFLOG("PILE", "cleared")
 end
 
 function AFCore.getStockpile() return AFCore.pileSq end
@@ -83,46 +90,39 @@ function AFCore.getTreeFromSquare(sq)
 end
 
 function AFCore.treesInRect(rect)
-  local res = {}
-  if not rect then return res end
+  local out = {}
+  if not rect then return out end
   local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
-  local cell = getCell(); if not cell then return res end
+  local cell = getCell(); if not cell then return out end
   for y=y1,y2 do
     for x=x1,x2 do
       local sq = cell:getGridSquare(x,y,z)
-      if AFCore.squareHasTree(sq) then table.insert(res, sq) end
+      if AFCore.squareHasTree(sq) then table.insert(out, sq) end
     end
   end
-  AFLOG("TREES","in rect", #res)
-  return res
+  if #out > 0 then
+    local f = out[1]
+    local l = out[#out]
+    AFLOG("TREES", "found", #out, "from", f:getX(), f:getY(), "to", l:getX(), l:getY())
+  else
+    AFLOG("TREES", "found", 0)
+  end
+  return out
 end
 
 -- Queue chops using vanilla actions (no custom TA required to validate flow)
-function AFCore.queueChops(p, squares)
-  local n=0
+function AFCore.queueChops(player, squares)
+  local n = 0
   for _,sq in ipairs(squares) do
     local tree = AFCore.getTreeFromSquare(sq)
     if tree then
-      ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
-      ISWorldObjectContextMenu.doChopTree(p, tree)
+      ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
+      -- use vanilla helper to enqueue correct chop TA:
+      ISWorldObjectContextMenu.onChopTree(player, tree)
+      AFLOG("CHOP", "queued", sq:getX(), sq:getY(), sq:getZ())
       n = n + 1
     end
   end
   return n
 end
 
--- Immediately drop heavy loot after some chops so we don’t stall on weight
-function AFCore.dropTreeLootNow(p)
-  local inv = p and p:getInventory(); if not inv then return end
-  local types = { "Base.Log", "Base.TreeBranch", "Base.LargeBranch", "Base.Twigs", "Base.Sapling" }
-  for _,full in ipairs(types) do
-    local items = inv:getItemsFromFullType(full)
-    if items then
-      for i=0,items:size()-1 do
-        ISTimedActionQueue.add(ISDropItemAction:new(p, items:get(i)))
-      end
-    end
-  end
-end
-
--- (area job moved to AutoChopTask.startAreaJob)
