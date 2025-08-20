@@ -11,11 +11,7 @@ local function addMenu(playerIndex, context, worldObjects, test)
   context:addOption("Designate Wood Pile Here", worldObjects, function()
     AF_Select.pickSquare(worldObjects, p, function(sq)
       if not sq then p:Say("No tile."); return end
-      AFCore.pileSq = sq
-      if sq.setHighlighted then
-        sq:setHighlighted(true)
-        if sq.setHighlightColor then sq:setHighlightColor(0.95,0.85,0.2) end
-      end
+      AFCore.setStockpile(sq)
       p:Say("Wood pile set.")
       AFLOG("pile", "sq=", tostring(sq), sq and (sq:getX()..","..sq:getY()..","..sq:getZ()) or "nil")
     end)

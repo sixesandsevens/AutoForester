@@ -48,7 +48,7 @@ function AFCore.setStockpile(sq)
   AFCore.pileSq = sq
   if sq and sq.setHighlighted then
     sq:setHighlighted(true)
-    if sq.setHighlightColor then sq:setHighlightColor(0.95,0.85,0.20) end
+    if sq.setHighlightColor then sq:setHighlightColor(0.9,0.8,0.2) end
   end
   AFLOG("PILE","set", sq and sq:getX(), sq and sq:getY(), sq and sq:getZ())
 end

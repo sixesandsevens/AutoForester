@@ -1,5 +1,6 @@
 -- AF_SelectArea.lua (fallback selector)
 require "ISCoordConversion"
+require "AutoForester_Debug"
 
 AF_SelectArea = AF_SelectArea or {}
 local Tool = { tag=nil, dragging=false, ax=0, ay=0, z=0, rect=nil, hi={} }
@@ -14,8 +15,10 @@ local function mouseSq()
   local wx = ISCoordConversion.ToWorldX(mx,my,0)
   local wy = ISCoordConversion.ToWorldY(mx,my,0)
   local p = getSpecificPlayer(0)
-  local z = p and p:getZ() or 0
-  return math.floor(wx), math.floor(wy), z
+  local z = (p and p:getZ()) or 0
+  local sq = getCell():getGridSquare(math.floor(wx), math.floor(wy), z)
+  AFLOG("select", "mouse=", mx, ",", my, " world=", wx, ",", wy, " z=", z, " sq=", tostring(sq))
+  return sq
 end
 
 local function hiRect(r)
@@ -47,13 +50,16 @@ function AF_SelectArea.stop()
 end
 
 function AF_SelectArea.onMouseDown(x,y)
-  Tool.ax,Tool.ay,Tool.z = mouseSq()
+  local sq = mouseSq()
+  if not sq then return end
+  Tool.ax,Tool.ay,Tool.z = sq:getX(), sq:getY(), sq:getZ()
   Tool.dragging=true
 end
 
 function AF_SelectArea.onMouseMove(dx,dy)
   if not Tool.dragging then return end
-  local bx,by = mouseSq()
+  local sq = mouseSq(); if not sq then return end
+  local bx,by = sq:getX(), sq:getY()
   local x1 = math.min(Tool.ax,bx)
   local y1 = math.min(Tool.ay,by)
   local x2 = math.max(Tool.ax,bx)
