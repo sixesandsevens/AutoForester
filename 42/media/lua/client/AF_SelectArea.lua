@@ -1,5 +1,6 @@
 -- AF_SelectArea.lua  (B42 safe)
 local AutoChopTask = AutoChopTask or {} -- forward ref if file order loads this first
+AF_SelectArea_EventsHooked = AF_SelectArea_EventsHooked or false
 
 local Tool = {
   active      = false,
@@ -106,16 +107,19 @@ function Tool.onMouseUp(x,y)
     AutoChopTask.gatherRect = Tool.rect
     if p and p.Say then p:Say("Gather area set.") end
   end
-
+  AF_DumpState("areaSet:"..Tool.kind)
   Tool.cancel()
   return true
 end
 
 AF_SelectArea = Tool
-if Events and Events.OnMouseDown and Events.OnMouseDown.Add then
-  Events.OnMouseDown.Add(Tool.onMouseDown)
-  Events.OnMouseMove.Add(Tool.onMouseMove)
-  Events.OnMouseUp.Add(Tool.onMouseUp)
+
+if not AF_SelectArea_EventsHooked then
+  Events.OnMouseDown.Add(AF_SelectArea.onMouseDown)
+  Events.OnMouseMove.Add(AF_SelectArea.onMouseMove)
+  Events.OnMouseUp.Add(AF_SelectArea.onMouseUp)
+  AF_SelectArea_EventsHooked = true
+  AFLOG("SelectArea: mouse events hooked")
 end
 return Tool
 
