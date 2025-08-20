@@ -1,19 +1,8 @@
--- AutoForester_Core.lua
--- Revised core logic with explicit phases for chopping, gathering, and hauling
+require "AutoForester_Debug"
 
-AFLOG = function(...)
-  print("[AutoForester]", table.concat({...}," "))
-end
-
-function AF_DumpState(where)
-  local t = AutoChopTask or {}
-  local p = t.player
-  local pn = p and (p:getUsername() or tostring(p)) or "nil"
-  AFLOG("DUMP@"..(where or "?"),
-        "phase="..tostring(t.phase),
-        "player="..pn,
-        "hasRect(chop)="..tostring(t.chopRect ~= nil),
-        "hasRect(gather)="..tostring(t.gatherRect ~= nil))
+function AF_getPlayer(pi)
+  if type(pi)=="number" then return getSpecificPlayer(pi) end
+  return (getSpecificPlayer and getSpecificPlayer(0)) or getPlayer()
 end
 
 require "TimedActions/ISTimedActionQueue"
@@ -67,66 +56,78 @@ function isWood(it)
 end
 Core.isWood = isWood
 
--- === Tree detection helpers ===============================================
-
-local function isTreeObject(obj)
+local function AF_isTreeObject(obj)
   if not obj then return false end
   if instanceof and instanceof(obj, "IsoTree") then return true end
-  local spr = obj.getSprite and obj:getSprite()
+  local spr = obj.getSprite and obj:getSprite() or nil
   local name = spr and spr:getName() or ""
-  return name:lower():find("tree") ~= nil
+  if name == "" then return false end
+  name = name:lower()
+  return name:find("tree_") or name:find("f_tr") or name:find("vegetation_tree")
 end
 
-local function squareHasTree(sq)
+local function AF_squareHasTree(sq)
   if not sq then return false end
   local objs = sq:getObjects()
   if not objs then return false end
-  for i = 0, objs:size()-1 do
-    if isTreeObject(objs:get(i)) then
-      return true
-    end
+  for i=0, objs:size()-1 do
+    local o = objs:get(i)
+    if AF_isTreeObject(o) then return true end
   end
   return false
 end
 
--- Returns an array of squares that contain a tree, within radius of originSq
-local function findNearbyTrees(originSq, radius)
+local function AF_findNearbyTrees(originSq, radius)
   local out = {}
-  if not originSq then return out end
-  radius = tonumber(radius) or 12
-  local ox, oy, oz = originSq:getX(), originSq:getY(), originSq:getZ()
+  if not originSq then AFLOG("findNearbyTrees: origin=nil"); return out end
+  local r = tonumber(radius) or 12
+  local ox,oy,oz = originSq:getX(), originSq:getY(), originSq:getZ()
   local cell = getCell()
-  for y = oy - radius, oy + radius do
-    for x = ox - radius, ox + radius do
-      local sq = cell:getGridSquare(x, y, oz)
-      if sq and squareHasTree(sq) then
+  local countSq, countHit = 0,0
+
+  for y=oy-r, oy+r do
+    for x=ox-r, ox+r do
+      local sq = cell:getGridSquare(x,y,oz)
+      countSq = countSq + 1
+      if sq and AF_squareHasTree(sq) then
         table.insert(out, sq)
+        countHit = countHit + 1
+        if AF_DEBUG and countHit <= 6 then AF_LIST_SQ_OBJS(sq, "nearby-hit") end
       end
     end
   end
+  AFLOG("findNearbyTrees:", "visited", countSq, "hit", countHit, "radius", r)
   return out
 end
 
-local function buildTreeQueueFromRect(rect)
+local function AF_buildTreeQueueFromRect(rect)
   local list = {}
-  if not rect then return list end
-  local x1,y1,x2,y2,z = table.unpack(rect)
+  if not rect then AFLOG("buildFromRect: rect=nil"); return list end
+  local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
+  if not x1 or not y1 or not x2 or not y2 then
+    AFLOG("buildFromRect: bad bounds", tostring(rect))
+    return list
+  end
   local cell = getCell()
-  for y = y1, y2 do
-    for x = x1, x2 do
-      local sq = cell:getGridSquare(x, y, z)
-      if sq and squareHasTree(sq) then
+  local hits=0
+  for y=y1,y2 do
+    for x=x1,x2 do
+      local sq = cell:getGridSquare(x,y,z)
+      if sq and AF_squareHasTree(sq) then
         table.insert(list, sq)
+        hits = hits + 1
+        if AF_DEBUG and hits <= 6 then AF_LIST_SQ_OBJS(sq, "rect-hit") end
       end
     end
   end
+  AFLOG("buildFromRect:", x1,y1,"→",x2,y2,"hits", hits)
   return list
 end
 
 -- Drop everything wooden at the player's feet (fast)
 function dropWoodNow()
-  local p = AutoChopTask.player or getP()
-  if not p then AFLOG("ASSERT: no player in dropWoodNow"); return end
+  local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+  if not p then AFLOG("TA queue: no player"); return end
   local inv = p:getInventory()
   local items = inv:getItems()
   for i = items:size()-1, 0, -1 do
@@ -139,20 +140,19 @@ end
 Core.dropWoodNow = dropWoodNow
 
 local function queueWalkTo(sq)
-  local p = AutoChopTask.player or getP()
-  if not p then AFLOG("ASSERT: no player in queueWalkTo"); return end
+  local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+  if not p then AFLOG("TA queue: no player"); return end
   if not sq then return end
   ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
 end
 
 -- after chopping a tree at sq
 local function queueChopTree(sq)
-  local p = AutoChopTask.player or getP()
-  if not p then AFLOG("ASSERT: no player in queueChopTree"); return end
+  local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+  if not p then AFLOG("TA queue: no player"); return end
   if not sq then return end
   queueWalkTo(sq)
   ISTimedActionQueue.add(ISChopTreeAction:new(p, sq))
-  -- Immediately drop wood to the ground to avoid overweight
   ISTimedActionQueue.add(AF_DropNowAction:new(p))
 end
 
@@ -168,7 +168,7 @@ local function setPhase(ph)
 end
 
 function Core.startChop(originSq)
-  Core.queue = buildTreeQueueFromRect(Core.chopRect)
+  Core.queue = AF_buildTreeQueueFromRect(Core.chopRect)
   AFLOG(("ChopQueue size = %d"):format(#Core.queue))
   if #Core.queue == 0 then
     local p = Core.player or getP()
@@ -202,15 +202,14 @@ local function refillGatherQueueFromRect(rect)
 end
 
 local function queueLootSweep(areaRect)
-  local p = AutoChopTask.player or getP()
-  if not p then AFLOG("ASSERT: no player in queueLootSweep"); return end
-  -- walk every square, pick all wood from ground containers to inventory
+  local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+  if not p then AFLOG("TA queue: no player"); return end
   ISTimedActionQueue.add(AF_SweepWoodAction:new(p, areaRect))
 end
 
 local function queueHaulToPile(pileSq)
-  local p = AutoChopTask.player or getP()
-  if not p then AFLOG("ASSERT: no player in queueHaulToPile"); return end
+  local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+  if not p then AFLOG("TA queue: no player"); return end
   ISTimedActionQueue.add(AF_HaulWoodToPileAction:new(p, pileSq))
 end
 
@@ -244,21 +243,33 @@ function Core.pulse()
   end
 end
 
-function Core.startJob_playerRadius(playerOrIndex, radius)
-  local p = getP(playerOrIndex)
-  if not assertPlayer(p, "startJob_playerRadius") then return end
-  Core.player = p
-  local sq = p:getSquare(); if not sq then return end
-  radius = radius or 12
-  Core.chopRect = {sq:getX()-radius, sq:getY()-radius, sq:getX()+radius, sq:getY()+radius, sq:getZ()}
-  Core.queue = findNearbyTrees(sq, radius)
-  AFLOG(("ChopQueue size = %d"):format(#Core.queue))
-  if p and p.Say then p:Say(string.format("Found %d tree(s).", #Core.queue)) end
-  if #Core.queue == 0 then
-    setPhase("idle")
-    return
+function Core.startJob_playerRadius(pi, radius)
+  local p = AF_getPlayer(pi)
+  if not p then AFLOG("startJob_playerRadius: no player"); return end
+  local sq = p:getSquare()
+  if not sq then AFLOG("startJob_playerRadius: player sq=nil"); return end
+
+  AutoChopTask = AutoChopTask or {}
+  AutoChopTask.player = p
+  AutoChopTask.phase  = "chop"
+  AutoChopTask.queue  = AF_findNearbyTrees(sq, radius)
+
+  AFSAY(p, string.format("Found %d tree(s).", #AutoChopTask.queue))
+  AF_DUMP("start:nearby")
+  Core.pulse()
+end
+
+function Core.startChopFromRect(pi)
+  local p = AF_getPlayer(pi)
+  if not p then AFLOG("startChopFromRect: no player"); return end
+  if not (AutoChopTask and AutoChopTask.chopRect) then
+    AFLOG("startChopFromRect: rect=nil"); return
   end
-  setPhase("chop")
+  AutoChopTask.player = p
+  AutoChopTask.phase  = "chop"
+  AutoChopTask.queue  = AF_buildTreeQueueFromRect(AutoChopTask.chopRect)
+  AFSAY(p, string.format("Chop area: %d tree(s).", #AutoChopTask.queue))
+  AF_DUMP("start:rect")
   Core.pulse()
 end
 
@@ -269,7 +280,7 @@ function Core.startJob(pOrIndex)
   AutoChopTask = AutoChopTask or {}
   AutoChopTask.player = p
   AutoChopTask.phase  = "chop"
-  AF_DumpState("startJob")
+  AF_DUMP("startJob")
   Core.startChop(p:getSquare())
   Core.pulse()
 end
@@ -283,9 +294,11 @@ function Core.hasStockpile()
   return Shared.getPileSquare() ~= nil
 end
 
-function Core.setStockpile(sq)
+function Core.SetStockpile(sq)
   if sq then Shared.setPile(sq) end
 end
+
+Core.setStockpile = Core.SetStockpile
 
 function Core.clearStockpile()
   Shared.clearPile()

@@ -9,8 +9,9 @@ function AF_HaulWoodToPileAction:update() end
 function AF_HaulWoodToPileAction:start() end
 function AF_HaulWoodToPileAction:stop() ISBaseTimedAction.stop(self) end
 function AF_HaulWoodToPileAction:perform()
-  local p = self.character
+  local p = self.character or (AutoChopTask and AutoChopTask.player) or AF_getPlayer()
   local pileSq = self.pileSq
+  if not p then AFLOG("TA queue: no player"); return end
   if p and pileSq then
     ISTimedActionQueue.add(ISWalkToTimedAction:new(p, pileSq))
     ISTimedActionQueue.add(AF_DropNowAction:new(p))

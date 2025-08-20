@@ -1,3 +1,4 @@
+require "AutoForester_Debug"
 local AFCore = require("AutoForester_Core")
 local AF_SelectArea = require("AF_SelectArea")
 
@@ -49,7 +50,7 @@ local function addMenu(pi, context, wos, test)
   end)
 
   context:addOption("AF: Dump State (debug)", nil, function()
-    AF_DumpState("menu")
+    AF_DUMP("menu")
   end)
 
   local c = AFCore

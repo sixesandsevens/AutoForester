@@ -1,3 +1,4 @@
+require "AutoForester_Debug"
 
 -- AutoChopTask.lua: Core logic for automated tree chopping & hauling (B42 singleplayer)
 
@@ -67,6 +68,8 @@ function AutoChopTask.ensureAxeEquipped(p)
     end
     if not best then return false end
 
+    local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+    if not p then AFLOG("TA queue: no player"); return end
     ISTimedActionQueue.add(ISEquipWeaponAction:new(p, best, 50, true, true))
     return true
 end
@@ -170,6 +173,8 @@ local function dropAtCurrentSquare(p, allowedTypes)
 
     dbg(string.format("dropAtCurrentSquare: dropping %d item(s) at %d,%d",
         #toDrop, sq:getX(), sq:getY()))
+    local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+    if not p then AFLOG("TA queue: no player"); return end
     ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq:getX(), sq:getY(), sq:getZ()))
     ISTimedActionQueue.add(AFInstant:new(p, function()
         log("drop at", sq:getX(), sq:getY(), sq:getZ(), "count", #toDrop)
@@ -276,6 +281,8 @@ local function collectHaulablesFromRect(rect)
 end
 
 local function queuePickupItems(p, itemList)
+    local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+    if not p then AFLOG("TA queue: no player"); return end
     for _, it in ipairs(itemList) do
         ISTimedActionQueue.add(ISGrabItemAction:new(p, it, 0))
     end
@@ -298,6 +305,8 @@ local function queueDeliver(p, items)
         dbg("queueDeliver: no items to deliver")
         return
     end
+    local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+    if not p then AFLOG("TA queue: no player"); return end
 
     dbg("queueDeliver: delivering " .. tostring(#items) .. " item(s)")
 
@@ -370,6 +379,8 @@ function AutoChopTask.update()
                 return
             end
             dbg(string.format("Walking to & chopping tree @ %d,%d", tsq:getX(), tsq:getY()))
+            local p = AutoChopTask and AutoChopTask.player or AF_getPlayer()
+            if not p then AFLOG("TA queue: no player"); return end
             ISTimedActionQueue.add(ISWalkToTimedAction:new(p,
                 tsq:getX(), tsq:getY(), tsq:getZ()))
             ISTimedActionQueue.add(ISChopTreeAction:new(p, tree))
