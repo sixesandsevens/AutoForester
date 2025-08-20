@@ -67,6 +67,62 @@ function isWood(it)
 end
 Core.isWood = isWood
 
+-- === Tree detection helpers ===============================================
+
+local function isTreeObject(obj)
+  if not obj then return false end
+  if instanceof and instanceof(obj, "IsoTree") then return true end
+  local spr = obj.getSprite and obj:getSprite()
+  local name = spr and spr:getName() or ""
+  return name:lower():find("tree") ~= nil
+end
+
+local function squareHasTree(sq)
+  if not sq then return false end
+  local objs = sq:getObjects()
+  if not objs then return false end
+  for i = 0, objs:size()-1 do
+    if isTreeObject(objs:get(i)) then
+      return true
+    end
+  end
+  return false
+end
+
+-- Returns an array of squares that contain a tree, within radius of originSq
+local function findNearbyTrees(originSq, radius)
+  local out = {}
+  if not originSq then return out end
+  radius = tonumber(radius) or 12
+  local ox, oy, oz = originSq:getX(), originSq:getY(), originSq:getZ()
+  local cell = getCell()
+  for y = oy - radius, oy + radius do
+    for x = ox - radius, ox + radius do
+      local sq = cell:getGridSquare(x, y, oz)
+      if sq and squareHasTree(sq) then
+        table.insert(out, sq)
+      end
+    end
+  end
+  return out
+end
+
+local function buildTreeQueueFromRect(rect)
+  local list = {}
+  if not rect then return list end
+  local x1,y1,x2,y2,z = table.unpack(rect)
+  local cell = getCell()
+  for y = y1, y2 do
+    for x = x1, x2 do
+      local sq = cell:getGridSquare(x, y, z)
+      if sq and squareHasTree(sq) then
+        table.insert(list, sq)
+      end
+    end
+  end
+  return list
+end
+
 -- Drop everything wooden at the player's feet (fast)
 function dropWoodNow()
   local p = AutoChopTask.player or getP()
@@ -111,29 +167,9 @@ local function setPhase(ph)
   if ph == "idle" then Core.player = nil end
 end
 
-local function refillChopQueueFromRect(rect, originSq)
-  Core.queue = {}
-  if not rect then return end
-  local x1,y1,x2,y2,z = table.unpack(rect)
-  local cell = getCell()
-  for y=y1,y2 do
-    for x=x1,x2 do
-      local sq = cell:getGridSquare(x,y,z)
-      if sq then
-        local objs = sq:getObjects()
-        if objs then
-          for i=0,objs:size()-1 do
-            local o = objs:get(i)
-            if o and instanceof(o, "IsoTree") then table.insert(Core.queue, sq) break end
-          end
-        end
-      end
-    end
-  end
-end
-
 function Core.startChop(originSq)
-  refillChopQueueFromRect(Core.chopRect, originSq)
+  Core.queue = buildTreeQueueFromRect(Core.chopRect)
+  AFLOG(("ChopQueue size = %d"):format(#Core.queue))
   if #Core.queue == 0 then
     local p = Core.player or getP()
     if p and p.Say then p:Say("No trees in chop area.") end
@@ -215,7 +251,15 @@ function Core.startJob_playerRadius(playerOrIndex, radius)
   local sq = p:getSquare(); if not sq then return end
   radius = radius or 12
   Core.chopRect = {sq:getX()-radius, sq:getY()-radius, sq:getX()+radius, sq:getY()+radius, sq:getZ()}
-  Core.startChop(sq)
+  Core.queue = findNearbyTrees(sq, radius)
+  AFLOG(("ChopQueue size = %d"):format(#Core.queue))
+  if p and p.Say then p:Say(string.format("Found %d tree(s).", #Core.queue)) end
+  if #Core.queue == 0 then
+    setPhase("idle")
+    return
+  end
+  setPhase("chop")
+  Core.pulse()
 end
 
 function Core.startJob(pOrIndex)
