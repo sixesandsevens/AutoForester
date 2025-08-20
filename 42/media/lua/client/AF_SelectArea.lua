@@ -45,20 +45,23 @@ end
 
 local function makeRect(a, b)
   if not a or not b then return nil end
-  local z = a:getZ()
+  local ax, ay, az = a:getX(), a:getY(), a:getZ()
+  local bx, by, bz = b:getX(), b:getY(), b:getZ()
+  if az ~= bz then bz = az end
   return {
-    math.min(a:getX(), b:getX()),
-    math.min(a:getY(), b:getY()),
-    math.max(a:getX(), b:getX()),
-    math.max(a:getY(), b:getY()),
-    z
+    math.min(ax, bx),
+    math.min(ay, by),
+    math.max(ax, bx),
+    math.max(ay, by),
+    az,
   }
 end
 
 local function getMouseSquare()
-  local mx,my = ISCoordConversion.ToWorld(getMouseX(), getMouseY(), 0)
   local p = getP()
-  return getCell():getGridSquare(mx, my, p and p:getZ() or 0)
+  local z = p and p:getZ() or 0
+  local wx, wy = ISCoordConversion.ToWorld(getMouseX(), getMouseY(), z)
+  return getCell():getGridSquare(wx, wy, z)
 end
 
 function Tool.start(kind)
@@ -67,6 +70,10 @@ function Tool.start(kind)
   Tool.startSq = getMouseSquare()
   Tool.rect    = nil
   clearHighlight()
+  if not Tool.startSq then
+    local p = getP()
+    if p and p.Say then p:Say("No valid tile under cursor.") end
+  end
 end
 
 function Tool.cancel()
@@ -87,27 +94,33 @@ end
 function Tool.onMouseMove(dx,dy)
   if not Tool.active or not Tool.startSq then return false end
   local cur = getMouseSquare()
-  local rect = makeRect(Tool.startSq, cur)
-  Tool.rect = rect
-  addHighlight(rect)
+  if not cur then return false end
+  Tool.rect = makeRect(Tool.startSq, cur)
+  addHighlight(Tool.rect)
   return true
 end
 
 function Tool.onMouseUp(x,y)
-  if not Tool.active then return false end
+  if not Tool.active or not Tool.startSq then return false end
   local cur = getMouseSquare()
+  if not cur then
+    Tool.cancel()
+    return true
+  end
   Tool.rect = makeRect(Tool.startSq, cur)
   addHighlight(Tool.rect)
 
   local p = getP()
-  if Tool.kind == "chop" then
-    AutoChopTask.chopRect = Tool.rect
-    if p and p.Say then p:Say("Chop area set.") end
-  else
-    AutoChopTask.gatherRect = Tool.rect
-    if p and p.Say then p:Say("Gather area set.") end
+  if Tool.rect then
+    if Tool.kind == "chop" then
+      AutoChopTask.chopRect = Tool.rect
+      if p and p.Say then p:Say("Chop area set.") end
+    else
+      AutoChopTask.gatherRect = Tool.rect
+      if p and p.Say then p:Say("Gather area set.") end
+    end
+    AF_DumpState("areaSet:"..Tool.kind)
   end
-  AF_DumpState("areaSet:"..Tool.kind)
   Tool.cancel()
   return true
 end
