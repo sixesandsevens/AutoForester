@@ -9,8 +9,9 @@ function AF_SweepWoodAction:update() end
 function AF_SweepWoodAction:start() end
 function AF_SweepWoodAction:stop() ISBaseTimedAction.stop(self) end
 function AF_SweepWoodAction:perform()
-  local p = self.character
+  local p = self.character or (AutoChopTask and AutoChopTask.player) or AF_getPlayer()
   local rect = self.areaRect
+  if not p then AFLOG("TA queue: no player"); ISBaseTimedAction.perform(self); return end
   if p and rect and AutoChopTask and AutoChopTask.isWood then
     local cell = getCell()
     for x = rect[1], rect[3] do
