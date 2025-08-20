@@ -1,31 +1,100 @@
--- B42 TimedAction classes (explicit requires to guarantee globals exist here)
-require "TimedActions/ISBaseTimedAction"
+-- AutoForester_Core.lua: task orchestration for chopping and gathering wood
+
 require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISWalkToTimedAction"
-require "TimedActions/ISChopTreeAction"     -- we use this later after walking
-require "TimedActions/ISGrabItemAction"
-require "TimedActions/ISInventoryTransferAction"   -- for container piles
--- require "TimedActions/ISDropItemAction"
-
-print("[AutoForester] Core file loading")
+require "TimedActions/ISChopTreeAction"
+require "TimedActions/ISDropItemAction"
+require "TimedActions/ISAIFinalizeAction"
+require "TimedActions/ISPickupWorldItemAction"
 
 local Shared = require "AutoForester_Shared"
-local Core = { _queue=nil, _i=0, _busy=false, _lastPulse=0 }
 
-local function dbg(m) print("[AutoForester] "..tostring(m)) end
+local Core = {
+  trees = {},
+  phase = "IDLE",
+  idleTicks = 0
+}
 
-local AFInstant = ISBaseTimedAction:derive("AFInstant")
-function AFInstant:isValid() return true end
-function AFInstant:waitToStart() return false end
-function AFInstant:perform() if self.func then pcall(self.func) end ISBaseTimedAction.perform(self) end
-function AFInstant:new(p, fn) local o=ISBaseTimedAction.new(self, p); o.func=fn; o.maxTime=1; return o end
+-- ===== item helpers =====
+local function isWood(it)
+  if not it or not it.getFullType then return false end
+  local ft = it:getFullType()
+  return ft == "Base.Log" or ft == "Base.TreeBranch" or ft == "Base.Twigs" or ft == "Base.Stone"
+end
 
+local function queueDropOnGround(p)
+  local inv = p and p:getInventory()
+  if not inv then return end
+  local items = inv:getItems()
+  for i = items:size() - 1, 0, -1 do
+    local it = items:get(i)
+    if isWood(it) then
+      ISTimedActionQueue.add(ISDropItemAction:new(p, it))
+    end
+  end
+end
+
+local function inRect(sq, rect)
+  if not sq or not rect then return false end
+  local x1, y1, x2, y2 = rect[1], rect[2], rect[3], rect[4]
+  return sq:getX() >= x1 and sq:getX() <= x2 and sq:getY() >= y1 and sq:getY() <= y2
+end
+
+local function queueLootSweep(p, rect)
+  if not p or not rect then return end
+  ISTimedActionQueue.add(ISAIFinalizeAction:new(p, function()
+    local cell = getCell()
+    for x = rect[1], rect[3] do
+      for y = rect[2], rect[4] do
+        local sq = cell:getGridSquare(x, y, rect[5] or 0)
+        if sq then
+          local wios = sq:getWorldObjects()
+          for i = 0, wios:size() - 1 do
+            local wio = wios:get(i)
+            local it = wio and wio:getItem()
+            if it and isWood(it) then
+              ISTimedActionQueue.add(ISPickupWorldItemAction:new(p, it, x, y, sq:getZ()))
+            end
+          end
+        end
+      end
+    end
+  end))
+end
+
+local function queueDropAtPile(p)
+  local pileSq = Shared.getPileSquare()
+  if not p or not pileSq then return end
+  ISTimedActionQueue.add(ISWalkToTimedAction:new(p, pileSq))
+  ISTimedActionQueue.add(ISAIFinalizeAction:new(p, function()
+    local items = p:getInventory():getItems()
+    for i = items:size() - 1, 0, -1 do
+      local it = items:get(i)
+      if isWood(it) then
+        ISTimedActionQueue.add(ISWorldObjectContextMenu.dropItemAtSquare(p, it, pileSq))
+      end
+    end
+  end))
+end
+
+local function startGatherPhase(p)
+  if not AutoChopTask or not AutoChopTask.gatherRect then
+    p:Say("No gather area. Use 'Gather Area: Set Corner'.")
+    return
+  end
+  queueLootSweep(p, AutoChopTask.gatherRect)
+  queueDropAtPile(p)
+end
+
+-- ===== tree helpers =====
 local function squaresAround(sq, r)
   local out, cell, z = {}, getCell(), sq:getZ()
-  for dx=-r,r do for dy=-r,r do
-    local s = cell:getGridSquare(sq:getX()+dx, sq:getY()+dy, z)
-    if s then out[#out+1]=s end
-  end end
+  for dx = -r, r do
+    for dy = -r, r do
+      local s = cell:getGridSquare(sq:getX() + dx, sq:getY() + dy, z)
+      if s then out[#out + 1] = s end
+    end
+  end
   return out
 end
 
@@ -34,183 +103,96 @@ local function findNearbyTrees(originSq, r)
   for _, s in ipairs(squaresAround(originSq, r)) do
     local objs = s:getObjects()
     if objs then
-      for i=0, objs:size()-1 do
+      for i = 0, objs:size() - 1 do
         local o = objs:get(i)
-        if o and instanceof(o, "IsoTree") then trees[#trees+1] = {tree=o, square=s} end
+        if o and instanceof(o, "IsoTree") then
+          trees[#trees + 1] = { tree = o, square = s }
+        end
       end
     end
   end
   return trees
 end
 
--- Walk the player to a square; returns true if we queued a walk
-local function queueWalkTo(p, sq)
-    if not p or not sq then return false end
-
-    -- Safety: make sure class globals are really present
-    if not ISTimedActionQueue or not ISWalkToTimedAction then
-        print("[AutoForester][ERROR] TimedAction classes not loaded (ISTimedActionQueue/ISWalkToTimedAction nil)")
-        return false
-    end
-
-    -- B42 accepts the square directly
-    local ok, err = pcall(function()
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
-    end)
-
-    if not ok then
-        print("[AutoForester][ERROR] queueWalkTo failed: "..tostring(err))
-        return false
-    end
-    return true
-end
-
-local function queueChop(p, tree)
-    if not p or not tree then return false end
-    if not ISTimedActionQueue or not ISChopTreeAction then
-        print("[AutoForester][ERROR] TimedAction classes not loaded (ISTimedActionQueue/ISChopTreeAction nil)")
-        return false
-    end
-
-    local ok, err = pcall(function()
-        -- ISChopTreeAction:new(character, tree) in B42 (no time arg needed; engine sets it)
-        ISTimedActionQueue.add(ISChopTreeAction:new(p, tree))
-    end)
-
-    if not ok then
-        print("[AutoForester][ERROR] queueChop failed: "..tostring(err))
-        return false
-    end
-    return true
-end
-
-local function queueLootSweep(p, stumpSq, r)
-  ISTimedActionQueue.add(AFInstant:new(p, function()
-    local cell = getCell()
-    for dx=-r,r do for dy=-r,r do
-      local s = cell:getGridSquare(stumpSq:getX()+dx, stumpSq:getY()+dy, stumpSq:getZ())
-      local wios = s and s:getWorldObjects()
-      if wios then
-        for i=0, wios:size()-1 do
-          local wio = wios:get(i); local it = wio and wio:getItem()
-          if it and Shared.ITEM_TYPES[it:getType()] then
-            ISTimedActionQueue.add(ISGrabItemAction:new(p, wio, 5))
-          end
-        end
-      end
-    end end
-  end))
-end
-
--- Move carried haulables to the stockpile. If a container was designated,
--- transfer into it; otherwise place on ground at the pile square.
-local function queueDropAtPile(p)
-    local pile = Shared.getPileSquare()
-    if not pile then return end
-
-    -- 1) Walk to the pile (explicit coords are safest)
-    queueWalkTo(p, pile)
-
-    -- 2) Snapshot just the items we care about (inventory can mutate during queue)
-    local inv = p:getInventory()
-    local items = {}
-    local all = inv:getItems()
-    for i = all:size()-1, 0, -1 do
-        local it = all:get(i)
-        if it and Shared.ITEM_TYPES[it:getType()] then
-            table.insert(items, it)
-        end
-    end
-    if #items == 0 then return end
-
-    -- 3) Deliver
-    local cont = Shared.getPileContainer() -- nil if ground pile
-    if cont then
-        -- Use inventory transfers for containers
-        for i = 1, #items do
-            ISTimedActionQueue.add(ISInventoryTransferAction:new(p, items[i], inv, cont))
-        end
-    else
-        -- Drop EXACTLY at pile square via instant callback, not at "current" square
-        ISTimedActionQueue.add(AFInstant:new(p, function()
-            for i = 1, #items do
-                local it = items[i]
-                if inv:contains(it) then inv:Remove(it) end
-                pile:AddWorldInventoryItem(it, 0.0, 0.0, 0.0)
-            end
-        end))
-    end
-end
-
-local function step(p)
-  Core._lastPulse = (type(getTimestampMs)=="function") and getTimestampMs() or (Core._lastPulse + 1)
-  if not Core._queue or Core._i > #Core._queue then
-    Core._busy=false; Shared.say(p,"AutoForester complete."); dbg("Job complete"); return
-  end
-  local job = Core._queue[Core._i]; Core._i = Core._i + 1
-  if not (job and job.tree and job.square) then return step(p) end
-
-  dbg(("Step walk→chop @ %d,%d"):format(job.square:getX(), job.square:getY()))
-  if not queueWalkTo(p, job.square) then
-    p:Say("Could not start walk; actions unavailable.")
-    Core._queue, Core._busy = nil, false
-    return
-  end
-  if not queueChop(p, job.tree) then
-    p:Say("Could not start chop; actions unavailable.")
-    Core._queue, Core._busy = nil, false
-    return
-  end
-  queueLootSweep(p, job.square, Shared.cfg.sweepRadius or 1)
-  queueDropAtPile(p)
-  ISTimedActionQueue.add(AFInstant:new(p, function() step(p) end))
-end
-
-function Core.hasStockpile() return Shared.Stockpile ~= nil end
-function Core.setStockpile(sq) if sq then Shared.setPile(sq); print("[AutoForester] pile set") end end
-function Core.clearStockpile() Shared.clearPile(); print("[AutoForester] pile cleared") end
-
-function Core.startJob(p)
-  if Core._busy then Shared.say(p,"Already working…"); return end
-  if not p then return end
+function Core.startJob_playerRadius(p, radius)
+  if Core.phase ~= "IDLE" then p:Say("Already working… please wait."); return end
   local origin = p:getSquare(); if not origin then return end
-  local trees = findNearbyTrees(origin, Shared.cfg.radius or 12)
-  local cap = 25; if #trees > cap then local t={}; for i=1,cap do t[i]=trees[i] end; trees=t end
-  Core._queue, Core._i, Core._busy = trees, 1, true
-  Shared.say(p, ("Queued %d tree(s)."):format(#trees)); print("[AutoForester] queued "..#trees)
-  local ok, err = pcall(function() step(p) end)
-  if not ok then Core._busy=false; Core._queue=nil; print("[AutoForester][ERROR] "..tostring(err)); Shared.say(p, "Error; queue cleared") end
+  Core.trees = findNearbyTrees(origin, radius or 12)
+  Core.phase = "CHOP"
+  Core.idleTicks = 0
 end
 
--- Watchdog – registered by Boot when Events exists
-local function watchdog()
-  if not Core._busy then return end
-  local p = getSpecificPlayer and getSpecificPlayer(0); if not p then return end
+function Core.popNextTree()
+  return table.remove(Core.trees, 1)
+end
+
+function Core.queueWalkTo(p, tree)
+  if not tree then return end
+  ISTimedActionQueue.add(ISWalkToTimedAction:new(p, tree.square))
+end
+
+function Core.queueChop(p, tree)
+  if not tree then return end
+  ISTimedActionQueue.add(ISChopTreeAction:new(p, tree.tree))
+end
+
+local function playerIdle(p)
   local q = ISTimedActionQueue.getTimedActionQueue(p)
-  local empty = not (q and q.queue and q.queue:size() > 0)
-  local now = (type(getTimestampMs)=="function") and getTimestampMs() or 0
-  if empty and now and (now - (Core._lastPulse or now)) > 4000 then
-    print("[AutoForester] Watchdog nudged")
-    step(p)
+  return not (q and q.queue and q.queue:size() > 0)
+end
+
+function Core.step()
+  local p = getPlayer()
+  if not p then return end
+  if Core.phase == "CHOP" then
+    if playerIdle(p) then
+      local nextTree = Core.popNextTree()
+      if nextTree then
+        Core.queueWalkTo(p, nextTree)
+        Core.queueChop(p, nextTree)
+        queueDropOnGround(p)
+      else
+        Core.phase = "GATHER"
+      end
+    end
+    if p:getInventory():getCapacityWeight() > p:getMaxWeight() then
+      queueDropOnGround(p)
+    end
+  elseif Core.phase == "GATHER" then
+    if playerIdle(p) then
+      startGatherPhase(p)
+      Core.phase = "DONE"
+    end
   end
+end
+
+function Core.cancel()
+  Core.trees = {}
+  Core.phase = "IDLE"
+  Core.idleTicks = 0
+end
+
+function Core.dumpState()
+  print(string.format("[AutoForester] phase=%s trees=%d idle=%d", Core.phase, #Core.trees, Core.idleTicks))
+end
+
+function Core.hasStockpile()
+  return Shared.getPileSquare() ~= nil
+end
+
+function Core.setStockpile(sq)
+  if sq then Shared.setPile(sq) end
+end
+
+function Core.clearStockpile()
+  Shared.clearPile()
 end
 
 function Core.register()
-  if Events and Events.EveryOneSecond and Events.EveryOneSecond.Add then
-    Events.EveryOneSecond.Add(watchdog)
-    print("[AutoForester] Watchdog registered")
-  else
-    print("[AutoForester][WARN] EveryOneSecond not ready; deferring to OnGameStart")
-    if Events and Events.OnGameStart and Events.OnGameStart.Add then
-      Events.OnGameStart.Add(function()
-        if Events.EveryOneSecond and Events.EveryOneSecond.Add then
-          Events.EveryOneSecond.Add(watchdog)
-          print("[AutoForester] Watchdog registered (deferred)")
-        end
-      end)
-    end
+  if Events and Events.OnPlayerUpdate and Events.OnPlayerUpdate.Add then
+    Events.OnPlayerUpdate.Add(function() Core.step() end)
   end
 end
 
-print("[AutoForester] Core file loaded OK")
 return Core
+
