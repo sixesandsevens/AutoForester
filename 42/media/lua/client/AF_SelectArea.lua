@@ -1,16 +1,19 @@
-AutoChopTask = AutoChopTask or {}
+-- AF_SelectArea.lua  (B42 safe)
+local AutoChopTask = AutoChopTask or {} -- forward ref if file order loads this first
 
 local Tool = {
-  active = false,
-  startSq = nil,
-  rect = nil,
-  highlighted = {},
-  kind = "chop" -- or "gather", set by caller
+  active      = false,
+  kind        = nil,        -- "chop" | "gather"
+  startSq     = nil,
+  rect        = nil,        -- {x1,y1,x2,y2,z}
+  highlighted = {}
 }
 
 local function clearHighlight()
-  for _, sq in ipairs(Tool.highlighted) do
-    if sq and sq.setHighlighted then sq:setHighlighted(false) end
+  for _,sq in ipairs(Tool.highlighted) do
+    if sq and sq.setHighlighted then
+      sq:setHighlighted(false)
+    end
   end
   Tool.highlighted = {}
 end
@@ -18,14 +21,14 @@ end
 local function addHighlight(rect)
   clearHighlight()
   if not rect then return end
-  local x1, y1, x2, y2 = table.unpack(rect)
+  local x1,y1,x2,y2,z = table.unpack(rect)
   local cell = getCell()
-  for x = x1, x2 do
-    for y = y1, y2 do
-      local sq = cell:getGridSquare(x, y, 0)
-      if sq and sq.setHighlighted then
+  for y = y1,y2 do
+    for x = x1,x2 do
+      local sq = cell:getGridSquare(x,y,z)
+      if sq then
         sq:setHighlighted(true)
-        -- B42 NOTE: setHighlightColor is not guaranteed; do NOT call it.
+        sq:setHighlightColor(0,1,0,0.6)
         table.insert(Tool.highlighted, sq)
       end
     end
@@ -35,31 +38,58 @@ end
 local function makeRect(a, b)
   if not a or not b then return nil end
   local z = a:getZ()
-  return { math.min(a:getX(), b:getX()), math.min(a:getY(), b:getY()),
-           math.max(a:getX(), b:getX()), math.max(a:getY(), b:getY()), z }
+  return {
+    math.min(a:getX(), b:getX()),
+    math.min(a:getY(), b:getY()),
+    math.max(a:getX(), b:getX()),
+    math.max(a:getY(), b:getY()),
+    z
+  }
 end
 
-function Tool.onMouseDown(x, y)
+local function getMouseSquare()
+  local mx,my = ISCoordConversion.ToWorld(getMouseX(), getMouseY(), 0)
+  return getCell():getGridSquare(mx, my, getPlayer():getZ())
+end
+
+function Tool.start(kind)
+  Tool.active  = true
+  Tool.kind    = kind
+  Tool.startSq = getMouseSquare()
+  Tool.rect    = nil
+  clearHighlight()
+end
+
+function Tool.cancel()
+  Tool.active = false
+  Tool.kind   = nil
+  Tool.startSq = nil
+  Tool.rect   = nil
+  clearHighlight()
+end
+
+-- Mouse hooks (called from your context menu entry)
+function Tool.onMouseDown(x,y)
   if not Tool.active then return false end
   Tool.startSq = getMouseSquare()
-  return false
+  return true
 end
 
-function Tool.onMouseMove(dx, dy)
+function Tool.onMouseMove(dx,dy)
   if not Tool.active or not Tool.startSq then return false end
   local cur = getMouseSquare()
-  if not cur then return false end
-  Tool.rect = makeRect(Tool.startSq, cur)
-  addHighlight(Tool.rect)
-  return false
+  local rect = makeRect(Tool.startSq, cur)
+  Tool.rect = rect
+  addHighlight(rect)
+  return true
 end
 
-function Tool.onMouseUp(x, y)
+function Tool.onMouseUp(x,y)
   if not Tool.active then return false end
   local cur = getMouseSquare()
-  if not cur then return false end
   Tool.rect = makeRect(Tool.startSq, cur)
-  addHighlight(Tool.rect) -- final preview once more (safe)
+  addHighlight(Tool.rect)
+
   if Tool.kind == "chop" then
     AutoChopTask.chopRect = Tool.rect
     getPlayer():Say("Chop area set.")
@@ -67,22 +97,11 @@ function Tool.onMouseUp(x, y)
     AutoChopTask.gatherRect = Tool.rect
     getPlayer():Say("Gather area set.")
   end
-  Tool.active = false
-  return false
+
+  Tool.cancel()
+  return true
 end
 
-AF_SelectArea = {
-  Start = function(kind)
-    Tool.kind = kind or "chop"
-    Tool.active = true
-    Tool.startSq = nil
-    Tool.rect = nil
-    clearHighlight()
-  end,
-  Clear = clearHighlight
-}
-
-Events.OnMouseDown.Add(Tool.onMouseDown)
-Events.OnMouseMove.Add(Tool.onMouseMove)
-Events.OnMouseUp.Add(Tool.onMouseUp)
+AF_SelectArea = Tool
+return Tool
 
