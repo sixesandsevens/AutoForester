@@ -1,11 +1,7 @@
 -- AutoForester_Core.lua
 require "ISCoordConversion"
+require "AutoForester_Debug"
 AFCore = AFCore or {}
-
--- --------- debug toggle ----------
-AF_DEBUG = AF_DEBUG ~= false
-local function DBG(tag, ...) if AF_DEBUG then print("[AF]["..tostring(tag).."]", ...) end end
-local function SAY(p, msg) if p and p.Say then p:Say(msg) end end
 
 -- --------- soft-detect JB selector ----------
 -- DO NOT require by name; workshop name can vary. The JB lib usually exposes a global table.
@@ -19,7 +15,7 @@ function AF_getPlayer(maybePi)
   end
   local p = getSpecificPlayer(idx)
   if p and p:isAlive() then return p, idx end
-  DBG("getPlayer","failed idx",idx)
+  AFLOG("getPlayer", "failed idx", idx)
   return nil, idx
 end
 
@@ -54,7 +50,7 @@ function AFCore.setStockpile(sq)
     sq:setHighlighted(true)
     if sq.setHighlightColor then sq:setHighlightColor(0.95,0.85,0.20) end
   end
-  DBG("PILE","set", sq and sq:getX(), sq and sq:getY(), sq and sq:getZ())
+  AFLOG("PILE","set", sq and sq:getX(), sq and sq:getY(), sq and sq:getZ())
 end
 
 function AFCore.clearStockpile()
@@ -65,35 +61,39 @@ end
 function AFCore.getStockpile() return AFCore.pileSq end
 
 -- --------- trees ----------
-local function squareHasTree(sq)
+function AFCore.squareHasTree(sq)
   if not sq then return false end
   if sq.HasTree and sq:HasTree() then return true end
-  local os = sq:getObjects()
-  for i=0,(os and os:size() or 0)-1 do
-    if instanceof(os:get(i), "IsoTree") then return true end
+  local objs = sq:getObjects()
+  for i=0,(objs and objs:size() or 0)-1 do
+    if instanceof(objs:get(i), "IsoTree") then return true end
   end
   return false
 end
 
-local function getTreeFromSquare(sq)
+function AFCore.getTreeFromSquare(sq)
   if not sq then return nil end
   if sq.getTree and sq:HasTree() then return sq:getTree() end
-  local os = sq:getObjects()
-  for i=0,(os and os:size() or 0)-1 do
-    local o = os:get(i)
+  local objs = sq:getObjects()
+  for i=0,(objs and objs:size() or 0)-1 do
+    local o = objs:get(i)
     if instanceof(o, "IsoTree") then return o end
   end
   return nil
 end
 
-function AFCore.treesInRect(r)
-  local res, cell = {}, getCell(); if not (r and cell) then return res end
-  local x1,y1,x2,y2,z = r[1],r[2],r[3],r[4],r[5] or 0
-  for y=y1,y2 do for x=x1,x2 do
-    local sq = cell:getGridSquare(x,y,z)
-    if squareHasTree(sq) then table.insert(res, sq) end
-  end end
-  DBG("TREES","in rect", #res)
+function AFCore.treesInRect(rect)
+  local res = {}
+  if not rect then return res end
+  local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
+  local cell = getCell(); if not cell then return res end
+  for y=y1,y2 do
+    for x=x1,x2 do
+      local sq = cell:getGridSquare(x,y,z)
+      if AFCore.squareHasTree(sq) then table.insert(res, sq) end
+    end
+  end
+  AFLOG("TREES","in rect", #res)
   return res
 end
 
@@ -101,10 +101,9 @@ end
 function AFCore.queueChops(p, squares)
   local n=0
   for _,sq in ipairs(squares) do
-    local tree = getTreeFromSquare(sq)
+    local tree = AFCore.getTreeFromSquare(sq)
     if tree then
       ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
-      -- vanilla helper schedules swing(s):
       ISWorldObjectContextMenu.doChopTree(p, tree)
       n = n + 1
     end
@@ -126,22 +125,4 @@ function AFCore.dropTreeLootNow(p)
   end
 end
 
--- --------- area job entry (chop only; sweep/haul can follow) ----------
-function AFCore.startAreaJob(pOrIndex, chopRect, gatherRect)
-  local p = AF_getPlayer(pOrIndex); if not p then return end
-  if not chopRect then SAY(p,"Set chop area first."); return end
-  if not AFCore.getStockpile() then SAY(p,"Designate wood pile first."); return end
-
-  local list = AFCore.treesInRect(chopRect)
-  if #list == 0 then SAY(p,"No trees in chop area."); return end
-
-  local n = AFCore.queueChops(p, list)
-  -- yield + drop now
-  ISTimedActionQueue.add(ISBaseTimedAction:new(p)) -- micro-yield
-  ISTimedActionQueue.add(ISBaseTimedAction:new(p)) -- micro-yield
-  ISTimedActionQueue.add(ISBaseTimedAction:new(p)) -- keep simple
-  AFCore.dropTreeLootNow(p)
-
-  SAY(p, ("Queued %d tree(s)."):format(n))
-  DBG("JOB","queued", n)
-end
+-- (area job moved to AutoChopTask.startAreaJob)
