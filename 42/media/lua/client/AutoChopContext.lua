@@ -3,14 +3,18 @@
 local AFCore = require "AutoForester_Core"
 require "AF_SelectArea"
 
-local function hasAxe(p)
-  local function isAxeItem(it)
-    if not it then return false end
-    local ft = it:getFullType()
-    return ft == "Base.Axe" or ft == "Base.HandAxe" or ft == "Base.StoneAxe" or it:hasTag("Axe")
-  end
-  local prim, sec = p:getPrimaryHandItem(), p:getSecondaryHandItem()
-  return isAxeItem(prim) or isAxeItem(sec)
+local function itemIsAxe(it)
+  if not it then return false end
+  -- B42 weapons have tags; vanilla axes have Tag "Axe"
+  if it.hasTag and it:hasTag("Axe") then return true end
+  -- fallback heuristics
+  local t = it.getType and it:getType() or ""
+  if t:lower():find("axe") then return true end
+  return false
+end
+
+local function hasAnyAxe(p)
+  return itemIsAxe(p:getPrimaryHandItem()) or itemIsAxe(p:getSecondaryHandItem())
 end
 
 local function getSafeSquare(playerIndex, worldObjects)
@@ -50,7 +54,7 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
   end)
 
   context:addOption("Cancel AutoForester Job", nil, function()
-    AF_SelectArea.Clear()
+    AF_SelectArea.cancel()
     AFCore.cancel()
     player:Say("Canceled.")
   end)
@@ -60,22 +64,21 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
   end)
 
   context:addOption("Chop Area: Set Corner", nil, function()
-    AF_SelectArea.Start("chop")
+    AF_SelectArea.start("chop")
   end)
 
   context:addOption("Gather Area: Set Corner", nil, function()
-    AF_SelectArea.Start("gather")
+    AF_SelectArea.start("gather")
   end)
 
-  if not hasAxe(player) then
-    context:addOption("Auto-Chop Trees (radius 12)", nil, function()
-      player:Say("Equip an axe to use this.")
-    end):setTooltip(getText("Tooltip_RequireAxe"))
-  else
-    context:addOption("Auto-Chop Trees (radius 12)", nil, function()
+  local enabled = hasAnyAxe(player)
+  context:addOption("Auto-Chop Trees (radius 12)", nil, function()
+    if enabled then
       AFCore.startJob_playerRadius(player, 12)
-    end)
-  end
+    else
+      player:Say("Equip an axe to use this.")
+    end
+  end).notAvailable = not enabled
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFillWorld)
