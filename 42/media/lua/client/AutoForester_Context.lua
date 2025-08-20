@@ -1,4 +1,5 @@
 local AFCore = require("AutoForester_Core")
+local AF_SelectArea = require("AF_SelectArea")
 
 local getP = AFCore.getP
 
@@ -26,6 +27,16 @@ local function addMenu(pi, context, wos, test)
   if test then return end
   local sq = getSafeSquare(pi, wos)
 
+  context:addOption("Chop Area: Set Corner", nil, function()
+    AF_SelectArea.start("chop")
+    AFLOG("SelectArea: start 'chop'")
+  end)
+
+  context:addOption("Gather Area: Set Corner", nil, function()
+    AF_SelectArea.start("gather")
+    AFLOG("SelectArea: start 'gather'")
+  end)
+
   context:addOption("Designate Wood Pile Here", sq, function(targetSq)
     local c = AFCore; if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
     targetSq = targetSq or getSafeSquare(pi, wos)
@@ -34,8 +45,11 @@ local function addMenu(pi, context, wos, test)
 
   context:addOption("Auto-Chop Nearby Trees", sq, function()
     local c = AFCore; if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
-    local p = getP and getP(pi or 0); if not p then say(pi,"No player"); return end
-    c.startJob_playerRadius(p, 12)
+    c.startJob(pi)
+  end)
+
+  context:addOption("AF: Dump State (debug)", nil, function()
+    AF_DumpState("menu")
   end)
 
   local c = AFCore

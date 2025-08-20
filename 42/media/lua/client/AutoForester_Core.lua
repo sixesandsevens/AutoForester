@@ -1,6 +1,21 @@
 -- AutoForester_Core.lua
 -- Revised core logic with explicit phases for chopping, gathering, and hauling
 
+AFLOG = function(...)
+  print("[AutoForester]", table.concat({...}," "))
+end
+
+function AF_DumpState(where)
+  local t = AutoChopTask or {}
+  local p = t.player
+  local pn = p and (p:getUsername() or tostring(p)) or "nil"
+  AFLOG("DUMP@"..(where or "?"),
+        "phase="..tostring(t.phase),
+        "player="..pn,
+        "hasRect(chop)="..tostring(t.chopRect ~= nil),
+        "hasRect(gather)="..tostring(t.gatherRect ~= nil))
+end
+
 require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISWalkToTimedAction"
 require "TimedActions/ISChopTreeAction"
@@ -53,8 +68,9 @@ end
 Core.isWood = isWood
 
 -- Drop everything wooden at the player's feet (fast)
-function dropWoodNow(p)
-  if not assertPlayer(p, "dropWoodNow") then return end
+function dropWoodNow()
+  local p = AutoChopTask.player or getP()
+  if not p then AFLOG("ASSERT: no player in dropWoodNow"); return end
   local inv = p:getInventory()
   local items = inv:getItems()
   for i = items:size()-1, 0, -1 do
@@ -66,15 +82,19 @@ function dropWoodNow(p)
 end
 Core.dropWoodNow = dropWoodNow
 
-local function queueWalkTo(p, sq)
-  if not assertPlayer(p, "queueWalkTo") or not sq then return end
+local function queueWalkTo(sq)
+  local p = AutoChopTask.player or getP()
+  if not p then AFLOG("ASSERT: no player in queueWalkTo"); return end
+  if not sq then return end
   ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
 end
 
 -- after chopping a tree at sq
-local function queueChopTree(p, sq)
-  if not assertPlayer(p, "queueChopTree") or not sq then return end
-  queueWalkTo(p, sq)
+local function queueChopTree(sq)
+  local p = AutoChopTask.player or getP()
+  if not p then AFLOG("ASSERT: no player in queueChopTree"); return end
+  if not sq then return end
+  queueWalkTo(sq)
   ISTimedActionQueue.add(ISChopTreeAction:new(p, sq))
   -- Immediately drop wood to the ground to avoid overweight
   ISTimedActionQueue.add(AF_DropNowAction:new(p))
@@ -129,7 +149,7 @@ local function stepChop(p)
   end
   local sq = table.remove(Core.queue, 1)
   Core.busy = true
-  queueChopTree(p, sq)
+  queueChopTree(sq)
 end
 
 local function refillGatherQueueFromRect(rect)
@@ -145,20 +165,22 @@ local function refillGatherQueueFromRect(rect)
   end
 end
 
-local function queueLootSweep(p, areaRect)
-  if not assertPlayer(p, "queueLootSweep") then return end
+local function queueLootSweep(areaRect)
+  local p = AutoChopTask.player or getP()
+  if not p then AFLOG("ASSERT: no player in queueLootSweep"); return end
   -- walk every square, pick all wood from ground containers to inventory
   ISTimedActionQueue.add(AF_SweepWoodAction:new(p, areaRect))
 end
 
-local function queueHaulToPile(p, pileSq)
-  if not assertPlayer(p, "queueHaulToPile") then return end
+local function queueHaulToPile(pileSq)
+  local p = AutoChopTask.player or getP()
+  if not p then AFLOG("ASSERT: no player in queueHaulToPile"); return end
   ISTimedActionQueue.add(AF_HaulWoodToPileAction:new(p, pileSq))
 end
 
 local function stepGather(p)
   Core.busy = true
-  queueLootSweep(p, Core.gatherRect or Core.chopRect)
+  queueLootSweep(Core.gatherRect or Core.chopRect)
 end
 
 local function stepHaul(p)
@@ -169,7 +191,7 @@ local function stepHaul(p)
     if p and p.Say then p:Say("No log stockpile set.") end
     return
   end
-  queueHaulToPile(p, pileSq)
+  queueHaulToPile(pileSq)
 end
 
 function Core.pulse()
@@ -194,6 +216,18 @@ function Core.startJob_playerRadius(playerOrIndex, radius)
   radius = radius or 12
   Core.chopRect = {sq:getX()-radius, sq:getY()-radius, sq:getX()+radius, sq:getY()+radius, sq:getZ()}
   Core.startChop(sq)
+end
+
+function Core.startJob(pOrIndex)
+  local p = type(pOrIndex)=="number" and getP(pOrIndex) or pOrIndex or getP()
+  if not p then AFLOG("startJob: NO PLAYER"); return end
+
+  AutoChopTask = AutoChopTask or {}
+  AutoChopTask.player = p
+  AutoChopTask.phase  = "chop"
+  AF_DumpState("startJob")
+  Core.startChop(p:getSquare())
+  Core.pulse()
 end
 
 function Core.cancel()
