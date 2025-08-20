@@ -1,84 +1,88 @@
--- AF_SelectArea.lua (fallback selector)
+-- media/lua/client/AF_SelectArea.lua
 require "ISCoordConversion"
 require "AutoForester_Debug"
 
 AF_SelectArea = AF_SelectArea or {}
-local Tool = { tag=nil, dragging=false, ax=0, ay=0, z=0, rect=nil, hi={} }
+local T = { active=false, tag="", p=nil, z=0, a=nil, b=nil, hi={} , cb=nil }
 
-local function clear()
-  for _,sq in ipairs(Tool.hi) do if sq.setHighlighted then sq:setHighlighted(false) end end
-  Tool.hi = {}
+local function clearHi()
+  for _,sq in ipairs(T.hi) do if sq.setHighlighted then sq:setHighlighted(false) end end
+  T.hi = {}
 end
 
-local function mouseSq()
-  local mx,my = getMouseXScaled(), getMouseYScaled()
-  local wx = ISCoordConversion.ToWorldX(mx,my,0)
-  local wy = ISCoordConversion.ToWorldY(mx,my,0)
-  local p = getSpecificPlayer(0)
-  local z = (p and p:getZ()) or 0
-  local sq = getCell():getGridSquare(math.floor(wx), math.floor(wy), z)
-  AFLOG("select", "mouse=", mx, ",", my, " world=", wx, ",", wy, " z=", z, " sq=", tostring(sq))
-  return sq
+local function toSq(mx,my,z)
+  local wx = ISCoordConversion.ToWorldX(mx,my,z)
+  local wy = ISCoordConversion.ToWorldY(mx,my,z)
+  local cell = getCell(); if not cell then return nil, wx, wy end
+  return cell:getGridSquare(math.floor(wx), math.floor(wy), z), wx, wy
 end
 
-local function hiRect(r)
-  clear(); if not r then return end
+local function toRect(a,b)
+  local x1 = math.min(a[1],b[1]); local y1 = math.min(a[2],b[2])
+  local x2 = math.max(a[1],b[1]); local y2 = math.max(a[2],b[2])
+  return {x1,y1,x2,y2,T.z}
+end
+
+local function paintRect(rect)
+  clearHi(); if not rect then return end
   local cell = getCell(); if not cell then return end
-  local x1,y1,x2,y2,z = r[1],r[2],r[3],r[4],r[5] or 0
-  for y=y1,y2 do for x=x1,x2 do
-      local sq = cell:getGridSquare(x,y,z)
+  for y=rect[2],rect[4] do
+    for x=rect[1],rect[3] do
+      local sq = cell:getGridSquare(x,y,rect[5] or 0)
       if sq and sq.setHighlighted then
-        sq:setHighlighted(true)
-        if sq.setHighlightColor then sq:setHighlightColor(0,1,0,0.6) end
-        table.insert(Tool.hi, sq)
+        sq:setHighlighted(true); if sq.setHighlightColor then sq:setHighlightColor(0,1,0) end
+        table.insert(T.hi, sq)
       end
-  end end
-end
-
-function AF_SelectArea.start(tag)
-  Tool.tag = tag; Tool.dragging=false; Tool.rect=nil
-  Events.OnMouseDown.Add(AF_SelectArea.onMouseDown)
-  Events.OnMouseMove.Add(AF_SelectArea.onMouseMove)
-  Events.OnMouseUp.Add(AF_SelectArea.onMouseUp)
-end
-
-function AF_SelectArea.stop()
-  Events.OnMouseDown.Remove(AF_SelectArea.onMouseDown)
-  Events.OnMouseMove.Remove(AF_SelectArea.onMouseMove)
-  Events.OnMouseUp.Remove(AF_SelectArea.onMouseUp)
-  Tool.dragging=false; Tool.rect=nil; clear()
-end
-
-function AF_SelectArea.onMouseDown(x,y)
-  local sq = mouseSq()
-  if not sq then return end
-  Tool.ax,Tool.ay,Tool.z = sq:getX(), sq:getY(), sq:getZ()
-  Tool.dragging=true
-end
-
-function AF_SelectArea.onMouseMove(dx,dy)
-  if not Tool.dragging then return end
-  local sq = mouseSq(); if not sq then return end
-  local bx,by = sq:getX(), sq:getY()
-  local x1 = math.min(Tool.ax,bx)
-  local y1 = math.min(Tool.ay,by)
-  local x2 = math.max(Tool.ax,bx)
-  local y2 = math.max(Tool.ay,by)
-  Tool.rect = {x1,y1,x2,y2,Tool.z}
-  hiRect(Tool.rect)
-end
-
-function AF_SelectArea.onMouseUp(x,y)
-  AF_SelectArea.stop()
-  local r = Tool.rect
-  if AF_SelectArea.onDone then
-    if not r or r[3] < r[1] or r[4] < r[2] then
-      AF_SelectArea.onDone(nil)
-    else
-      local area = { minX=r[1], minY=r[2], maxX=r[3], maxY=r[4], z=r[5] or 0,
-                     areaWidth=r[3]-r[1]+1, areaHeight=r[4]-r[2]+1,
-                     numSquares=(r[3]-r[1]+1)*(r[4]-r[2]+1) }
-      AF_SelectArea.onDone(r, area)
     end
   end
 end
+
+function AF_SelectArea.start(tag, player, cb)
+  clearHi()
+  T.active = true
+  T.tag = tag or ""
+  T.p = player or getSpecificPlayer(0)
+  T.z = (T.p and T.p:getZ()) or 0
+  T.a, T.b, T.cb = nil, nil, (type(cb)=="function" and cb or function() end)
+  Events.OnMouseDown.Add(AF_SelectArea.onMouseDown)
+  Events.OnMouseUp.Add(AF_SelectArea.onMouseUp)
+  Events.OnMouseMove.Add(AF_SelectArea.onMouseMove)
+end
+
+local function stop(andReturn)
+  Events.OnMouseDown.Remove(AF_SelectArea.onMouseDown)
+  Events.OnMouseUp.Remove(AF_SelectArea.onMouseUp)
+  Events.OnMouseMove.Remove(AF_SelectArea.onMouseMove)
+  local r = andReturn and toRect(T.a, T.b) or nil
+  T.active=false; local cb=T.cb; T.cb=nil; paintRect(nil)
+  if cb then cb(r) end
+end
+
+function AF_SelectArea.onMouseDown(x,y)
+  if not T.active then return end
+  local mx,my = getMouseXScaled(), getMouseYScaled()
+  local sq,wx,wy = toSq(mx,my,T.z); if not sq then return end
+  AFLOG("AREA","down",mx,my,"->",wx,wy,"z",T.z)
+  T.a = {sq:getX(), sq:getY()}
+  T.b = {sq:getX(), sq:getY()}
+  paintRect(toRect(T.a, T.b))
+end
+
+function AF_SelectArea.onMouseMove(dx,dy)
+  if not T.active or not T.a then return end
+  local mx,my = getMouseXScaled(), getMouseYScaled()
+  local sq,wx,wy = toSq(mx,my,T.z); if not sq then return end
+  AFLOG("AREA","move",mx,my,"->",wx,wy,"z",T.z)
+  T.b = {sq:getX(), sq:getY()}
+  paintRect(toRect(T.a, T.b))
+end
+
+function AF_SelectArea.onMouseUp(x,y)
+  if not T.active or not T.a then return end
+  local mx,my = getMouseXScaled(), getMouseYScaled()
+  local sq,wx,wy = toSq(mx,my,T.z)
+  AFLOG("AREA","up",mx,my,"->",wx,wy,"z",T.z)
+  -- ensure non-zero size (allow 1x1)
+  stop(true)
+end
+
