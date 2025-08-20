@@ -1,7 +1,9 @@
 local AFCore = require("AutoForester_Core")
 
+local getP = AFCore.getP
+
 local function say(pi, txt)
-  local p = getSpecificPlayer and getSpecificPlayer(pi or 0)
+  local p = getP and getP(pi or 0)
   if p and p.Say then p:Say(txt) end
 end
 
@@ -15,7 +17,7 @@ local function getSafeSquare(pi, wos)
       local s = first:getSquare(); if s then return s end
     end
   end
-  local p = getSpecificPlayer and getSpecificPlayer(pi or 0)
+  local p = getP and getP(pi or 0)
   return p and p:getSquare() or nil
 end
 
@@ -32,8 +34,8 @@ local function addMenu(pi, context, wos, test)
 
   context:addOption("Auto-Chop Nearby Trees", sq, function()
     local c = AFCore; if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
-    local p = getSpecificPlayer(pi or 0); if not p then say(pi,"No player"); return end
-    c.startJob(p)
+    local p = getP and getP(pi or 0); if not p then say(pi,"No player"); return end
+    c.startJob_playerRadius(p, 12)
   end)
 
   local c = AFCore
