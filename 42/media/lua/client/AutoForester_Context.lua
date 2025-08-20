@@ -1,71 +1,41 @@
+-- AutoForester_Context.lua
 require "AutoForester_Debug"
-local AFCore = require("AutoForester_Core")
-local AF_SelectArea = require("AF_SelectArea")
-local AutoChopTask = require("AutoChopTask")
+require "AutoForester_Core"
+require "AF_SelectArea"
 
-local getP = AFCore.getP
+local function addMenu(pi, context, worldobjects, test)
+    if test then return end
 
-local function say(pi, txt)
-  local p = getP and getP(pi or 0)
-  if p and p.Say then p:Say(txt) end
-end
+    local p = AF_getPlayer(pi)
+    if not p then AFLOG("addMenu","no player"); return end
 
-local function getSafeSquare(pi, wos)
-  local ms = _G.getMouseSquare
-  local sq = (type(ms)=="function") and ms() or nil
-  if sq and sq.getX then return sq end
-  if wos then
-    local first = (wos.get and wos:get(0)) or wos[1]
-    if first and first.getSquare then
-      local s = first:getSquare(); if s then return s end
+    context:addOption("Chop Area: Set Corner", nil, function()
+        AF_SelectArea.start("chop")
+        AFSAY(p,"Chop area: drag and release.")
+    end)
+
+    context:addOption("Gather Area: Set Corner", nil, function()
+        AF_SelectArea.start("gather")
+        AFSAY(p,"Gather area: drag and release.")
+    end)
+
+    context:addOption("Designate Wood Pile Here", nil, function()
+        local sq = AF_getContextSquare(worldobjects)
+        AFCore.setStockpile(sq)
+        if sq then AFSAY(p,"Wood pile set.") end
+    end)
+
+    context:addOption("Start AutoForester (Area)", nil, function()
+        AFCore.startAreaJob(pi)
+    end)
+
+    if AFCore.pileSq then
+        context:addOption("Clear Wood Pile Marker", nil, function() AFCore.clearStockpile() end)
     end
-  end
-  local p = getP and getP(pi or 0)
-  return p and p:getSquare() or nil
-end
-
-local function addMenu(pi, context, wos, test)
-  context:addOption("AutoForester: Debug (hook loaded)", nil, function() say(pi,"AF: hook OK") end)
-  if test then return end
-  local sq = getSafeSquare(pi, wos)
-
-  context:addOption("Chop Area: Set Corner", nil, function()
-    AF_SelectArea.start("chop")
-  end)
-
-  context:addOption("Gather Area: Set Corner", nil, function()
-    AF_SelectArea.start("gather")
-  end)
-
-  context:addOption("Start AutoForester (Area)", nil, function()
-    local p = getSpecificPlayer(pi or 0)
-    if not p then return end
-    AutoChopTask.startAreaJob(p)
-  end)
-
-  context:addOption("Designate Wood Pile Here", sq, function(targetSq)
-    local c = AFCore; if not c then say(pi,"AutoForester core didn’t load. Check console."); return end
-    targetSq = targetSq or getSafeSquare(pi, wos)
-    if targetSq then c.setStockpile(targetSq); say(pi,"Wood pile set.") end
-  end)
-
-  local c = AFCore
-  if c and c.hasStockpile() then
-    context:addOption("Clear Wood Pile Marker", nil, function() c.clearStockpile(); say(pi,"Wood pile cleared.") end)
-  end
 end
 
 local function register()
-  if Events and Events.OnFillWorldObjectContextMenu and Events.OnFillWorldObjectContextMenu.Add then
+    -- Correct hook: passes playerIndex, context, worldobjects, test.
     Events.OnFillWorldObjectContextMenu.Add(addMenu)
-    print("[AutoForester] Context hook registered")
-  elseif Events and Events.OnCreatePlayer and Events.OnCreatePlayer.Add then
-    Events.OnCreatePlayer.Add(function()
-      if Events.OnFillWorldObjectContextMenu and Events.OnFillWorldObjectContextMenu.Add then
-        Events.OnFillWorldObjectContextMenu.Add(addMenu)
-        print("[AutoForester] Context hook registered (OnCreatePlayer)")
-      end
-    end)
-  end
 end
-Events.OnGameStart.Add(register)
+register()

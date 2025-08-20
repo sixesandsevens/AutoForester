@@ -1,8 +1,16 @@
-AutoForester_Debug = AutoForester_Debug or { on=true } -- flip to false to silence
-function AutoForester_Debug.log(fmt, ...)
-  if not AutoForester_Debug.on then return end
-  local msg = string.format(fmt, ...)
-  print("[AF] "..msg)
-  local p = getSpecificPlayer(0); if p and p.Say then p:Say(msg) end
+-- AutoForester_Debug.lua
+AFDBG = { on = true }  -- flip to false to silence
+
+local prefix = "[AF] "
+
+function AFLOG(tag, ...)
+    if not AFDBG.on then return end
+    local msg = table.concat({ ... }, " ")
+    print(prefix .. tag .. "> " .. msg)
+    if getPlayer() then getPlayer():Say(tag .. ": " .. msg) end
 end
-return AutoForester_Debug
+
+function AFSAY(p, msg)
+    if not p then return end
+    if AFDBG.on then p:Say(msg) end
+end
