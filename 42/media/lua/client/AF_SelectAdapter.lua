@@ -1,4 +1,6 @@
 -- AF_SelectAdapter.lua
+require "AutoForester_Debug"
+require "ISCoordConversion"
 local hasASS, ASS = pcall(require, "JB_ASSUtils")
 AF_Select = AF_Select or {}
 
@@ -11,6 +13,7 @@ function AF_Select.pickSquare(worldObjects, p, cb)
   local wx = ISCoordConversion.ToWorldX(mx,my,0)
   local wy = ISCoordConversion.ToWorldY(mx,my,0)
   local sq = getCell():getGridSquare(math.floor(wx), math.floor(wy), z)
+  AFLOG("select", "mouse=", mx, ",", my, " world=", wx, ",", wy, " z=", z, " sq=", tostring(sq))
   return cb(sq)
 end
 
