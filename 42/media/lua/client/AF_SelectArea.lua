@@ -9,6 +9,13 @@ local Tool = {
   highlighted = {}
 }
 
+local function getP(pi)
+  if type(pi) == "number" then
+    return getSpecificPlayer(pi)
+  end
+  return getSpecificPlayer and getSpecificPlayer(0) or getPlayer()
+end
+
 local function clearHighlight()
   for _,sq in ipairs(Tool.highlighted) do
     if sq and sq.setHighlighted then
@@ -49,7 +56,8 @@ end
 
 local function getMouseSquare()
   local mx,my = ISCoordConversion.ToWorld(getMouseX(), getMouseY(), 0)
-  return getCell():getGridSquare(mx, my, getPlayer():getZ())
+  local p = getP()
+  return getCell():getGridSquare(mx, my, p and p:getZ() or 0)
 end
 
 function Tool.start(kind)
@@ -90,12 +98,13 @@ function Tool.onMouseUp(x,y)
   Tool.rect = makeRect(Tool.startSq, cur)
   addHighlight(Tool.rect)
 
+  local p = getP()
   if Tool.kind == "chop" then
     AutoChopTask.chopRect = Tool.rect
-    getPlayer():Say("Chop area set.")
+    if p and p.Say then p:Say("Chop area set.") end
   else
     AutoChopTask.gatherRect = Tool.rect
-    getPlayer():Say("Gather area set.")
+    if p and p.Say then p:Say("Gather area set.") end
   end
 
   Tool.cancel()
@@ -103,5 +112,10 @@ function Tool.onMouseUp(x,y)
 end
 
 AF_SelectArea = Tool
+if Events and Events.OnMouseDown and Events.OnMouseDown.Add then
+  Events.OnMouseDown.Add(Tool.onMouseDown)
+  Events.OnMouseMove.Add(Tool.onMouseMove)
+  Events.OnMouseUp.Add(Tool.onMouseUp)
+end
 return Tool
 

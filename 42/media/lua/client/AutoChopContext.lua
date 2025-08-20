@@ -3,6 +3,8 @@
 local AFCore = require "AutoForester_Core"
 require "AF_SelectArea"
 
+local getP = AFCore.getP
+
 local function itemIsAxe(it)
   if not it then return false end
   -- B42 weapons have tags; vanilla axes have Tag "Axe"
@@ -34,13 +36,13 @@ local function getSafeSquare(playerIndex, worldObjects)
     end
   end
 
-  local p = getSpecificPlayer and getSpecificPlayer(playerIndex or 0)
+  local p = getP and getP(playerIndex or 0)
   return p and p:getCurrentSquare() or nil
 end
 
 local function onFillWorld(playerIndex, context, worldObjects, test)
   if test then return end
-  local player = getSpecificPlayer(playerIndex or 0)
+  local player = getP and getP(playerIndex or 0)
   if not player or player:isDead() then return end
 
   local sq = getSafeSquare(playerIndex, worldObjects)
@@ -74,7 +76,7 @@ local function onFillWorld(playerIndex, context, worldObjects, test)
   local enabled = hasAnyAxe(player)
   context:addOption("Auto-Chop Trees (radius 12)", nil, function()
     if enabled then
-      AFCore.startJob_playerRadius(player, 12)
+      AFCore.startJob_playerRadius(playerIndex or 0, 12)
     else
       player:Say("Equip an axe to use this.")
     end
