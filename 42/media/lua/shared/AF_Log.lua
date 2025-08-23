@@ -1,24 +1,22 @@
-if not AF_Log then AF_Log = {} end
+-- media/lua/shared/AF_Log.lua
+AF_Log = AF_Log or {}
 
-local PREFIX = "[AutoForester] "
-
-local function _fmt(...)
+local function vcat(...)
     local t = {}
-    for i,v in ipairs({...}) do t[#t+1] = tostring(v) end
+    for i=1,select('#', ...) do
+        t[#t+1] = tostring(select(i, ...))
+    end
     return table.concat(t, " ")
 end
 
 function AF_Log.info(...)
-    print(PREFIX .. _fmt(...))
+    print("[AutoForester][INFO] "..vcat(...))
 end
 
-function AF_Log.err(where, ex)
-    print(PREFIX .. "ERR in " .. tostring(where) .. " =>  " .. tostring(ex))
+function AF_Log.warn(...)
+    print("[AutoForester][WARN] "..vcat(...))
 end
 
--- run fn() in pcall and log any error; returns ok, result
-function AF_Log.safe(where, fn)
-    local ok, res = pcall(fn)
-    if not ok then AF_Log.err(where, res) end
-    return ok, res
+function AF_Log.err(...)
+    print("[AutoForester][ERR ] "..vcat(...))
 end
