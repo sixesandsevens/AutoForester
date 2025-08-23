@@ -91,7 +91,7 @@ function AFCore.queueChops(p, squares)
     local tree = AFCore.getTreeFromSquare(sq)
     if tree then
       ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
-      ISWorldObjectContextMenu.onChopTree(p, tree)
+      ISWorldObjectContextMenu.onChopTree({tree}, p, tree)
       AFLOG("CHOP","queued",sq:getX(),sq:getY(),sq:getZ())
       n = n + 1
     end

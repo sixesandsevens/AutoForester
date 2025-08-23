@@ -32,7 +32,8 @@ function AutoChopTask.startAreaJob(p)
   if #trees == 0 then p:Say("No trees in chop area."); return end
 
   local n = AFCore.queueChops(p, trees)
-  ISTimedActionQueue.add(AFInstant:new(p, function() dropTreeLootNow(p) end))
+  -- optional: game drops loot automatically after chop; stubbed out to avoid nil errors
+  -- if dropTreeLootNow then ISTimedActionQueue.add(AFInstant:new(p, function() dropTreeLootNow(p) end)) end
   p:Say(("Queued %d tree(s)."):format(n))
 
   local rect = AutoChopTask.gatherRect or AutoChopTask.chopRect
