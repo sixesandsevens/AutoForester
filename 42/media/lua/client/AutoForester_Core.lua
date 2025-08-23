@@ -1,3 +1,4 @@
+require "ISUI/ISCoordConversion"
 
 AFCore = AFCore or {}
 
@@ -28,11 +29,13 @@ end
 
 -- Tile under mouse (no extra click)
 function AFCore.getMouseSquare(p)
-    local mx,my = getMouseXScaled(), getMouseYScaled()
-    local wx = ISCoordConversion.ToWorldX(mx,my,0)
-    local wy = ISCoordConversion.ToWorldY(mx,my,0)
-    local z = (p and p.getZ and p:getZ()) or 0
-    local cell = getCell(); if not cell then return nil end
+  local z = (p and p.getZ and p:getZ()) or 0
+  local mx, my = getMouseXScaled(), getMouseYScaled()
+  local wx = ISCoordConversion.ToWorldX(mx, my, z)
+  local wy = ISCoordConversion.ToWorldY(mx, my, z)
+  local cell = getCell(); if not cell then return nil end
+  return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
+end
     return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
 end
 
