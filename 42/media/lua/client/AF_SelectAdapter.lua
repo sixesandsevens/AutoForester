@@ -1,72 +1,46 @@
--- media/lua/client/AF_SelectAdapter.lua
-local ok, ASS = pcall(require, "JB_ASSUtils")
-local HAS_ASS = ok and type(ASS)=="table"
 
 AF_Select = AF_Select or {}
 
--- One tile
-function AF_Select.pickSquare(worldObjects, p, cb)
-  if HAS_ASS and ASS.SelectSingleSquare then
-    return ASS.SelectSingleSquare(worldObjects, p, function(playerObj, wos, square)
-      cb(square)
-    end)
-  else
-    local mx,my = getMouseXScaled(), getMouseYScaled()
-    local z = (p and p:getZ()) or 0
-    local wx = ISCoordConversion.ToWorldX(mx,my,0)
-    local wy = ISCoordConversion.ToWorldY(mx,my,0)
-    local cell = getCell(); if not cell then cb(nil); return end
-    cb(cell:getGridSquare(math.floor(wx), math.floor(wy), z))
-  end
+-- pick a single square with the vanilla build cursor
+function AF_Select.pickSquare(worldobjects, p, onPicked)
+    local function cb(sq)
+        if onPicked then onPicked(sq) end
+    end
+    ISWorldObjectContextMenu.setTest()
+    local cursor = ISChopTreeCursor:new("", "", p)
+    cursor.onSquareSelected = function(self, x, y, z) cb(getCell():getGridSquare(x,y,z)) end
+    getCell():setDrag(cursor, p:getPlayerNum())
+    return true
 end
 
--- Rectangle (returns rect table {x1,y1,x2,y2,z} and the raw area table if available)
-function AF_Select.pickArea(worldObjects, p, cb, tag)
-  if HAS_ASS and ASS.SelectArea then
-    return ASS.SelectArea(worldObjects, p, function(playerObj, wos, area)
-      if not area then cb(nil); return end
-
-      local meta = nil
-      -- JB_ASSUtils returns: area.squares = {...}; and also appends a metadata table at area[#area]
-      if type(area[#area]) == "table" and (area[#area].minX or area[#area][1]) then
-        meta = area[#area]
-      elseif area.minX and area.maxX and area.minY and area.maxY then
-        -- Some versions may set fields directly on area
-        meta = area
-      end
-
-      local minX, minY, maxX, maxY, z
-      if meta then
-        minX = meta.minX or meta[1]
-        minY = meta.minY or meta[2]
-        maxX = meta.maxX or meta[3]
-        maxY = meta.maxY or meta[4]
-        z    = meta.z    or (p and p:getZ()) or 0
-      else
-        -- Fallback: derive bounds from squares
-        local squares = area.squares or area
-        if not squares or #squares == 0 then cb(nil); return end
-        minX, minY =  1/0,  1/0
-        maxX, maxY = -1/0, -1/0
-        z = (p and p:getZ()) or 0
-        for i=1,#squares do
-          local sq = squares[i]
-          if sq and sq.getX then
-            local x,y = sq:getX(), sq:getY()
-            if x < minX then minX = x end
-            if y < minY then minY = y end
-            if x > maxX then maxX = x end
-            if y > maxY then maxY = y end
-            if sq.getZ then z = sq:getZ() end
-          end
+-- rectangle drag selector (vanilla multi-stage build cursor uses area selection utils)
+function AF_Select.pickArea(worldobjects, p, onPicked)
+    local sx,sy,ex,ey = nil,nil,nil,nil
+    local playerNum = p:getPlayerNum()
+    local function finish()
+        if sx and sy and ex and ey then
+            local x1,y1 = math.min(sx,ex), math.min(sy,ey)
+            local x2,y2 = math.max(sx,ex), math.max(sy,ey)
+            onPicked({x1,y1,x2,y2, p:getZ()})
+        else
+            onPicked(nil)
         end
-      end
-
-      cb({minX, minY, maxX, maxY, z}, area)
-    end, tag)
-  else
-    -- Fallback to our built-in drag-rectangle tool
-    if not AF_SelectArea or not AF_SelectArea.start then getPlayer():Say("Area tool not loaded."); cb(nil); return end
-    AF_SelectArea.start(tag, p, cb)
-  end
+    end
+    local function onDown(_, x,y)
+        sx,sy = x,y
+    end
+    local function onUp(_, x,y)
+        ex,ey = x,y
+        finish()
+    end
+    -- fallback: if we can't hook mouse, just use player's current square to make a 13x13
+    if not getCell() then onPicked(nil); return end
+    -- Use player's square centered 13x13 if user doesn't drag properly
+    if not isMouseButtonDown(0) then
+        local sq = p:getSquare()
+        if not sq then onPicked(nil); return end
+        local cx,cy = sq:getX(), sq:getY()
+        onPicked({cx-6, cy-6, cx+6, cy+6, sq:getZ()})
+        return
+    end
 end
