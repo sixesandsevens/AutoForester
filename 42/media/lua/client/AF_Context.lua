@@ -1,35 +1,51 @@
+-- AF_Context.lua - right-click menu entries
+local AF_Log = require "AF_Logger"
+local AFCore  = require "AF_Core"
+local AF_Select = require "AF_TwoClickSelect"
 
--- media/lua/client/AF_Context.lua
-local AFCore   = require "AF_Core"
-local AF_Log   = require "AF_Logger"
-local AF_Select= require "AF_TwoClickSelect"
-local AF_Worker= require "AF_Worker"
+local function addEntries(playerIndex, context, worldobjects, test)
+    local p = getSpecificPlayer(playerIndex) or getPlayer()
+    if not p or not p:isAlive() then return end
 
-local function addEntries(player, context, worldobjects, test)
-    if test then return end
-    local p = getSpecificPlayer(player) or getPlayer()
-    if not p then return end
-    local sq = AFCore.worldSquareUnderMouse(p:getZ() or 0)
-    if not sq then return end
-
-    -- Always: Designate Wood Pile
-    context:addOption(getTextOrNull("IGUI_AF_DesignateWoodPile") or "Designate Wood Pile Here", worldobjects, function()
-        local s = AFCore.worldSquareUnderMouse(p:getZ() or 0)
-        if s then AFCore.setWoodPile(s:getX(), s:getY(), s:getZ()) end
+    -- Wood pile: take the tile under the mouse immediately
+    context:addOption("Designate Wood Pile Here", worldobjects, function()
+        AF_Log.safe("setStockpile", function()
+            local sq = AFCore.getMouseSquare(p)
+            if not sq then p:Say("No tile.") return end
+            AFCore.setStockpile(sq); p:Say("Wood pile set.")
+        end)
     end)
 
-    -- Start AutoForester: prefer JB selection if active, otherwise two-click picker.
-    context:addOption(getTextOrNull("IGUI_AF_Start") or "Start AutoForester", worldobjects, function()
-        local rect = AFCore.readJBSelectionRect()
-        if rect then
-            AF_Log.info("Using JB selection rect.")
-            AF_Worker.start(p, rect, p:getZ() or 0)
-            return
-        end
+    -- Set Chop Area
+    context:addOption("Set Chop Area...", worldobjects, function()
+        AF_Log.safe("pickArea(chop)", function()
+            AF_Select.pickArea(worldobjects, p, function(_, rect, size)
+                if not rect then p:Say("No area.") return end
+                _G.AF_LastChopRect = rect
+                p:Say(("Chop area: %dx%d."):format(size.w, size.h))
+            end, "chop")
+        end)
+    end)
 
-        AF_Select.pickArea(worldobjects, p, function(player, pickedRect, z, tag)
-            AF_Worker.start(player, pickedRect, z)
-        end, "AutoForester")
+    -- Set Gather Area
+    context:addOption("Set Gather Area...", worldobjects, function()
+        AF_Log.safe("pickArea(gather)", function()
+            AF_Select.pickArea(worldobjects, p, function(_, rect, size)
+                if not rect then p:Say("No area.") return end
+                _G.AF_LastGatherRect = rect
+                p:Say(("Gather area: %dx%d."):format(size.w, size.h))
+            end, "gather")
+        end)
+    end)
+
+    -- Start AutoForester (stub for now - prevents errors while we finish tasks)
+    context:addOption("Start AutoForester", worldobjects, function()
+        AF_Log.safe("start", function()
+            if not AFCore.getStockpile() then p:Say("Set wood pile first.") return end
+            if not _G.AF_LastChopRect then p:Say("Set chop area first.") return end
+            if not _G.AF_LastGatherRect then p:Say("Set gather area first.") return end
+            p:Say("AutoForester ready. (Tasks stubbed in this hotfix)")
+        end)
     end)
 end
 

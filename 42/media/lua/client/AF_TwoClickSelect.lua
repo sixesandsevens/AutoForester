@@ -1,64 +1,53 @@
-
--- media/lua/client/AF_TwoClickSelect.lua
-local AFCore = require "AF_Core"
+-- AF_TwoClickSelect.lua - dead simple two-click area selection
 local AF_Log = require "AF_Logger"
+local AFCore = require "AF_Core"
 
 AF_Select = AF_Select or {}
 
-local Picker = nil
+local function say(p, s) if p and p.Say then p:Say(tostring(s)) end end
 
-local function stopPicker()
-    if not Picker then return end
-    Events.OnMouseDown.Remove(Picker.onMouseDown)
-    Events.OnKeyPressed.Remove(Picker.onKeyPressed)
-    Picker = nil
+function AF_Select.stopPicker()
+    local Pick = AF_Select._picker
+    if not Pick then return end
+    Events.OnMouseDown.Remove(Pick.onMouseDown)
+    Events.OnKeyPressed.Remove(Pick.onKeyPressed)
+    AF_Select._picker = nil
+    AF_Log.info("Picker stopped.")
 end
 
-function AF_Select.worldSquareUnderMouse(z)
-    local mx = getMouseXScaled()
-    local my = getMouseYScaled()
-    local wx = ISCoordConversion.ToWorldX(mx, my, 0)
-    local wy = ISCoordConversion.ToWorldY(mx, my, 0)
-    local cell = getCell(); if not cell then return nil end
-    return cell:getGridSquare(math.floor(wx), math.floor(wy), z or 0)
-end
+function AF_Select.pickArea(worldobjects, p, callback, reasonTag)
+    local Picker = { stage = 0, p = p, cb = callback, z = (p and p:getZ() or 0), tag = reasonTag }
+    local function worldSquare() return AFCore.worldSquareUnderMouse(Picker.z) end
 
-function AF_Select.pickArea(worldobjects, player, callback, reasonTag)
-    stopPicker()
-    local p = player or getSpecificPlayer(0) or getPlayer()
-    if not p then AF_Log.err("No player for picker"); return end
-
-    local z = p:getZ() or 0
-    Picker = { stage = 0, p = p, z = z, cb = callback, tag = reasonTag }
-
-    function Picker.onKeyPressed(key)
-        -- ESC to cancel
-        if key == Keyboard.KEY_ESCAPE then
-            AF_Log.warn("Area selection cancelled.")
-            stopPicker()
-        end
-    end
-
-    function Picker.onMouseDown(x,y)
-        local sq = AF_Select.worldSquareUnderMouse(Picker.z)
+    function Picker.onMouseDown(x, y)
+        local sq = worldSquare()
         if not sq then return end
         if Picker.stage == 0 then
             Picker.x1, Picker.y1 = sq:getX(), sq:getY()
             Picker.stage = 1
-            AF_Log.info("First corner: "..Picker.x1..","..Picker.y1)
+            say(p, "First corner picked.")
         else
-            local x2,y2 = sq:getX(), sq:getY()
-            local rect = AFCore.normalizeRect({Picker.x1,Picker.y1,x2,y2})
-            AF_Log.info(string.format("Area picked: (%d,%d) to (%d,%d)", rect[1],rect[2],rect[3],rect[4]))
+            local x2, y2 = sq:getX(), sq:getY()
+            local rect = AFCore.normalizeRect({Picker.x1, Picker.y1, x2, y2})
             local cb = Picker.cb
-            stopPicker()
-            if cb then cb(Picker.p, rect, Picker.z, Picker.tag) end
+            AF_Select.stopPicker()
+            if cb then cb(p, rect, { w = rect[3]-rect[1]+1, h = rect[4]-rect[2]+1 }, Picker.tag) end
         end
     end
 
+    function Picker.onKeyPressed(key)
+        -- ESC to cancel
+        if key == 1 then
+            say(p, "Selection cancelled.")
+            AF_Select.stopPicker()
+        end
+    end
+
+    AF_Select._picker = Picker
     Events.OnMouseDown.Add(Picker.onMouseDown)
     Events.OnKeyPressed.Add(Picker.onKeyPressed)
-    AF_Log.info("Two-click area picker ready (ESC to cancel).")
+    say(p, "Pick 2 corners.")
+    AF_Log.info("Two-click area picker ready.")
 end
 
 return AF_Select
