@@ -1,5 +1,5 @@
-name=AutoForester
+name=AutoForester (dev drop)
 id=AutoForester
-description=Automates tree chopping and log hauling in singleplayer (Build 42). Minimal, dependency-optional.
-version=1.0.1
-author=SixesAndSevens
+poster=poster.png
+description=Chop trees in a selected area, sweep up wood, and haul to a designated pile. Dev build for testing.
+version=0.3

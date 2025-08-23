@@ -1,10 +1,10 @@
--- media/lua/client/AF_SweepAndHaul.lua
+-- AF_SweepAndHaul.lua
 AFSweep = AFSweep or {}
 
 local WOOD = { ["Base.Log"]=true, ["Base.TreeBranch"]=true, ["Base.LargeBranch"]=true, ["Base.Twigs"]=true, ["Base.Sapling"]=true }
 
 local function eachGroundItemInRect(rect, fn)
-  if not rect then return end
+  rect = AFCore.normalizeRect(rect); if not rect then return end
   local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
   local cell = getCell(); if not cell then return end
   for y=y1,y2 do
@@ -20,7 +20,7 @@ local function eachGroundItemInRect(rect, fn)
 end
 
 function AFSweep.enqueueSweep(p, rect)
-  eachGroundItemInRect(rect, function(sq, it)
+  eachGroundItemInRect(rect, function(sq,it)
     ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
     ISTimedActionQueue.add(ISPickupWorldItemAction:new(p, it, sq:getX(), sq:getY(), sq:getZ()))
   end)

@@ -1,4 +1,4 @@
--- media/lua/client/AF_SelectArea.lua
+-- AF_SelectArea.lua
 require "ISCoordConversion"
 require "AutoForester_Debug"
 
@@ -14,19 +14,22 @@ end
 local function toSq(mx,my,z)
   local wx = ISCoordConversion.ToWorldX(mx,my,0)
   local wy = ISCoordConversion.ToWorldY(mx,my,0)
-  local cell = getCell(); if not cell then return nil, wx, wy end
-  return cell:getGridSquare(math.floor(wx), math.floor(wy), z), wx, wy
+  local cell = getCell(); if not cell then return nil end
+  local sq = cell:getGridSquare(math.floor(wx), math.floor(wy), z)
+  return sq
 end
 
 local function toRect(a,b)
   if not a or not b then return nil end
-  local x1 = math.min(a[1], b[1]); local y1 = math.min(a[2], b[2])
-  local x2 = math.max(a[1], b[1]); local y2 = math.max(a[2], b[2])
+  local x1, x2 = (a[1] <= b[1]) and a[1] or b[1], (a[1] <= b[1]) and b[1] or a[1]
+  local y1, y2 = (a[2] <= b[2]) and a[2] or b[2], (a[2] <= b[2]) and b[2] or a[2]
   return {x1,y1,x2,y2,T.z}
 end
 
 local function paintRect(rect)
-  clearHi(); if not rect then return end
+  clearHi()
+  rect = AFCore and AFCore.normalizeRect and AFCore.normalizeRect(rect) or rect
+  if not rect then return end
   local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
   local cell = getCell(); if not cell then return end
   for y=y1,y2 do
@@ -65,17 +68,16 @@ end
 function AF_SelectArea.onMouseDown(x,y)
   if not T.active then return end
   local mx,my = getMouseXScaled(), getMouseYScaled()
-  local sq = select(1, toSq(mx,my,T.z))
-  if not sq then return end
+  local sq = toSq(mx,my,T.z); if not sq then return end
   T.a = { sq:getX(), sq:getY() }
-  AFLOG("AREA","down",mx,my,"->",T.a[1],T.a[2],"z",T.z)
+  T.b = T.a
+  paintRect(toRect(T.a, T.b))
 end
 
 function AF_SelectArea.onMouseMove(x,y)
   if not T.active or not T.a then return end
   local mx,my = getMouseXScaled(), getMouseYScaled()
-  local sq = select(1, toSq(mx,my,T.z))
-  if not sq then return end
+  local sq = toSq(mx,my,T.z); if not sq then return end
   T.b = { sq:getX(), sq:getY() }
   paintRect(toRect(T.a, T.b))
 end
@@ -83,7 +85,7 @@ end
 function AF_SelectArea.onMouseUp(x,y)
   if not T.active or not T.a then return end
   local mx,my = getMouseXScaled(), getMouseYScaled()
-  local sq = select(1, toSq(mx,my,T.z)); if not sq then return end
+  local sq = toSq(mx,my,T.z); if not sq then return end
   T.b = { sq:getX(), sq:getY() }
   AFLOG("AREA","up",mx,my,"->",T.b[1],T.b[2],"z",T.z)
   stop(true)

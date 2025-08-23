@@ -1,4 +1,4 @@
--- media/lua/client/AutoChopTask.lua
+-- AutoChopTask.lua
 require "AutoForester_Core"
 require "AF_SweepAndHaul"
 require "AF_Instant"
@@ -18,14 +18,17 @@ local function dropTreeLootNow(p)
 end
 
 function AutoChopTask.setChopRect(rect, area)
-  AutoChopTask.chopRect = rect
+  AutoChopTask.chopRect = AFCore.normalizeRect(rect or {})
+  AFLOG("RECT","chop", AutoChopTask.chopRect and (AutoChopTask.chopRect[1]..","..AutoChopTask.chopRect[2].." "..AutoChopTask.chopRect[3]..","..AutoChopTask.chopRect[4]) or "nil")
 end
 
 function AutoChopTask.setGatherRect(rect, area)
-  AutoChopTask.gatherRect = rect
+  AutoChopTask.gatherRect = AFCore.normalizeRect(rect or {})
+  AFLOG("RECT","gather", AutoChopTask.gatherRect and (AutoChopTask.gatherRect[1]..","..AutoChopTask.gatherRect[2].." "..AutoChopTask.gatherRect[3]..","..AutoChopTask.gatherRect[4]) or "nil")
 end
 
 function AutoChopTask.startAreaJob(p)
+  p = AFCore.getPlayer(p)
   if not AutoChopTask.chopRect then p:Say("Set chop area first."); return end
   if not AFCore.getStockpile() then p:Say("Designate wood pile first."); return end
   local trees = AFCore.treesInRect(AutoChopTask.chopRect)
