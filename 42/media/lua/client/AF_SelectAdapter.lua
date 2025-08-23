@@ -1,46 +1,46 @@
+-- AF_SelectAdapter.lua
+local ok, ASS = pcall(require, "JB_ASSUtils")
+local HAS_ASS = ok and type(ASS)=="table"
 
 AF_Select = AF_Select or {}
 
--- pick a single square with the vanilla build cursor
-function AF_Select.pickSquare(worldobjects, p, onPicked)
-    local function cb(sq)
-        if onPicked then onPicked(sq) end
-    end
-    ISWorldObjectContextMenu.setTest()
-    local cursor = ISChopTreeCursor:new("", "", p)
-    cursor.onSquareSelected = function(self, x, y, z) cb(getCell():getGridSquare(x,y,z)) end
-    getCell():setDrag(cursor, p:getPlayerNum())
-    return true
+-- One tile: choose the tile under the cursor immediately
+function AF_Select.pickSquare(worldObjects, p, cb)
+  if HAS_ASS and ASS.SelectSingleSquare then
+    -- Use ASS if present
+    return ASS.SelectSingleSquare(worldObjects, p, function(playerObj, wos, square)
+      cb(square)
+    end)
+  end
+  -- Fallback: get the current mouse square right away
+  local cell = getCell(); if not cell then cb(nil); return end
+  local mx,my = getMouseXScaled(), getMouseYScaled()
+  local wx = ISCoordConversion.ToWorldX(mx,my,0)
+  local wy = ISCoordConversion.ToWorldY(mx,my,0)
+  local z = (p and p.getZ and p:getZ()) or 0
+  local sq = cell:getGridSquare(math.floor(wx), math.floor(wy), z)
+  cb(sq)
 end
 
--- rectangle drag selector (vanilla multi-stage build cursor uses area selection utils)
-function AF_Select.pickArea(worldobjects, p, onPicked)
-    local sx,sy,ex,ey = nil,nil,nil,nil
-    local playerNum = p:getPlayerNum()
-    local function finish()
-        if sx and sy and ex and ey then
-            local x1,y1 = math.min(sx,ex), math.min(sy,ey)
-            local x2,y2 = math.max(sx,ex), math.max(sy,ey)
-            onPicked({x1,y1,x2,y2, p:getZ()})
-        else
-            onPicked(nil)
-        end
-    end
-    local function onDown(_, x,y)
-        sx,sy = x,y
-    end
-    local function onUp(_, x,y)
-        ex,ey = x,y
-        finish()
-    end
-    -- fallback: if we can't hook mouse, just use player's current square to make a 13x13
-    if not getCell() then onPicked(nil); return end
-    -- Use player's square centered 13x13 if user doesn't drag properly
-    if not isMouseButtonDown(0) then
-        local sq = p:getSquare()
-        if not sq then onPicked(nil); return end
-        local cx,cy = sq:getX(), sq:getY()
-        onPicked({cx-6, cy-6, cx+6, cy+6, sq:getZ()})
-        return
-    end
+-- Drag-select an area; callback receives (rectTable, areaTable)
+function AF_Select.pickArea(worldObjects, p, cb, tag)
+  if HAS_ASS and ASS.SelectArea then
+    return ASS.SelectArea(worldObjects, p, function(playerObj, wos, area)
+      if not area then cb(nil); return end
+      local minX = area.minX or area[1]
+      local minY = area.minY or area[2]
+      local maxX = area.maxX or area[3]
+      local maxY = area.maxY or area[4]
+      local z = area.z or (p and p.getZ and p:getZ()) or 0
+      cb({minX, minY, maxX, maxY, z}, area)
+    end, tag or "area")
+  end
+  if not AF_SelectArea or not AF_SelectArea.start then
+    if p and p.Say then p:Say("Area tool not loaded.") end
+    cb(nil)
+    return
+  end
+  AF_SelectArea.start(tag or "area", p, cb)
 end
+
+return AF_Select
