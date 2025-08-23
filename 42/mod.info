@@ -1,5 +1,5 @@
 name=AutoForester
 id=AutoForester
-description=Auto-chop trees; sweep/haul logs to a designated pile. (Dev build with sweep & haul queueing.)
 poster=poster.png
-version=0.2.4
+description=Select an area, chop trees, sweep grass/bushes, and haul logs to a designated wood pile. Optional support for JB_ASSUtils selection if present.
+version=0.6

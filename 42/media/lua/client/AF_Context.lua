@@ -1,57 +1,36 @@
+
 -- media/lua/client/AF_Context.lua
-local AF_Log = require "AF_Log"
-local AFCore = require "AF_Core"
-local AF_Select = require "AF_TwoClickSelect"
+local AFCore   = require "AF_Core"
+local AF_Log   = require "AF_Logger"
+local AF_Select= require "AF_TwoClickSelect"
+local AF_Worker= require "AF_Worker"
 
-AutoChopTask = AutoChopTask or { chopRect = nil, gatherRect = nil }
-
-function AutoChopTask.setChopRect(rect, area)   AutoChopTask.chopRect = rect end
-function AutoChopTask.setGatherRect(rect, area) AutoChopTask.gatherRect = rect end
-
-local function addMenu(playerIndex, context, worldobjects, test)
+local function addEntries(player, context, worldobjects, test)
     if test then return end
-    local p = getSpecificPlayer(playerIndex) or getPlayer()
-    if not p or p:isAlive() == false then return end
+    local p = getSpecificPlayer(player) or getPlayer()
+    if not p then return end
+    local sq = AFCore.worldSquareUnderMouse(p:getZ() or 0)
+    if not sq then return end
 
-    context:addOption("Designate Wood Pile Here", worldobjects, function()
-        local sq = AFCore.getMouseSquare(p)
-        if not sq then p:Say("No tile."); return end
-        AFCore.setStockpile(sq); p:Say("Wood pile set.")
+    -- Always: Designate Wood Pile
+    context:addOption(getTextOrNull("IGUI_AF_DesignateWoodPile") or "Designate Wood Pile Here", worldobjects, function()
+        local s = AFCore.worldSquareUnderMouse(p:getZ() or 0)
+        if s then AFCore.setWoodPile(s:getX(), s:getY(), s:getZ()) end
     end)
 
-    context:addOption("Set Chop Area...", worldobjects, function()
-        AF_Select.pickArea(worldobjects, p, function(rect, area)
-            if not rect then p:Say("No area."); return end
-            rect = AFCore.normalizeRect(rect)
-            if not rect then p:Say("No area."); return end
-            AutoChopTask.setChopRect(rect, area)
-            local w = (area and area.areaWidth) or (rect[3]-rect[1]+1)
-            local h = (area and area.areaHeight) or (rect[4]-rect[2]+1)
-            p:Say(("Chop area: %dx%d."):format(w, h))
-        end, "chop")
-    end)
+    -- Start AutoForester: prefer JB selection if active, otherwise two-click picker.
+    context:addOption(getTextOrNull("IGUI_AF_Start") or "Start AutoForester", worldobjects, function()
+        local rect = AFCore.readJBSelectionRect()
+        if rect then
+            AF_Log.info("Using JB selection rect.")
+            AF_Worker.start(p, rect, p:getZ() or 0)
+            return
+        end
 
-    context:addOption("Set Gather Area...", worldobjects, function()
-        AF_Select.pickArea(worldobjects, p, function(rect, area)
-            if not rect then p:Say("No area."); return end
-            rect = AFCore.normalizeRect(rect)
-            if not rect then p:Say("No area."); return end
-            AutoChopTask.setGatherRect(rect, area)
-            local w = (area and area.areaWidth) or (rect[3]-rect[1]+1)
-            local h = (area and area.areaHeight) or (rect[4]-rect[2]+1)
-            p:Say(("Gather area: %dx%d."):format(w, h))
-        end, "gather")
-    end)
-
-    context:addOption("Start AutoForester (Area)", worldobjects, function()
-        if not AutoChopTask.chopRect then p:Say("Set chop area first."); return end
-        if not AFCore.getStockpile() and not AutoChopTask.gatherRect then
-            p:Say("Set pile or gather area first."); return end
-        p:Say("AutoForester would start now (placeholder).")
-        AF_Log.info("Start requested. ChopRect:", table.concat(AutoChopTask.chopRect, ","))
+        AF_Select.pickArea(worldobjects, p, function(player, pickedRect, z, tag)
+            AF_Worker.start(player, pickedRect, z)
+        end, "AutoForester")
     end)
 end
 
--- Try to keep only one copy of our context adder active
-pcall(function() Events.OnFillWorldObjectContextMenu.RemoveByName("AutoForester-Context") end)
-Events.OnFillWorldObjectContextMenu.Add(addMenu)
+Events.OnFillWorldObjectContextMenu.Add(addEntries)
