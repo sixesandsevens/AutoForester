@@ -1,8 +1,17 @@
--- AF_Instant.lua
-AFInstant = ISBaseTimedAction:derive("AFInstant")
+-- media/lua/client/AF_Instant.lua
+AF_Instant = AF_Instant or {}
+local AFInstant = ISBaseTimedAction:derive("AFInstant")
+
 function AFInstant:isValid() return true end
-function AFInstant:start() end
 function AFInstant:update() end
-function AFInstant:stop() end
-function AFInstant:perform() if self.cb then self.cb() end ISBaseTimedAction.perform(self) end
-function AFInstant:new(p, cb) local o = {} setmetatable(o, self); self.__index = self; o.character=p; o.cb=cb; o.maxTime=1; return o end
+function AFInstant:start() end
+function AFInstant:stop() ISBaseTimedAction.stop(self) end
+function AFInstant:perform() self.func(); ISBaseTimedAction.perform(self) end
+
+function AFInstant:new(player, func)
+  local o = ISBaseTimedAction.new(self, player)
+  o.maxTime = 1; o.func = func
+  return o
+end
+
+return AFInstant

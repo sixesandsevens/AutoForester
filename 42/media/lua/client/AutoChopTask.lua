@@ -1,45 +1,57 @@
--- AutoChopTask.lua
+
 require "AutoForester_Core"
-require "AF_SweepAndHaul"
-require "AF_Instant"
 
-AutoChopTask = AutoChopTask or { chopRect=nil, gatherRect=nil }
+AutoChopTask = AutoChopTask or {}
+AutoChopTask.state = AutoChopTask.state or {}
+AutoChopTask.state.chopRect = nil
+AutoChopTask.state.gatherRect = nil
 
-local function dropTreeLootNow(p)
-  local inv = p:getInventory()
-  for _,full in ipairs({ "Base.Log","Base.TreeBranch","Base.LargeBranch","Base.Twigs","Base.Sapling" }) do
-    local items = inv:getItemsFromFullType(full)
-    if items then
-      for i=0, items:size()-1 do
-        ISTimedActionQueue.add(ISDropItemAction:new(p, items:get(i)))
-      end
+local function say(p, msg) if p then p:Say(tostring(msg)) end end
+
+function AutoChopTask.setChopRect(rect, area) AutoChopTask.state.chopRect = rect end
+function AutoChopTask.setGatherRect(rect, area) AutoChopTask.state.gatherRect = rect end
+
+local function gatherRectOrChop()
+    return AutoChopTask.state.gatherRect or AutoChopTask.state.chopRect
+end
+
+local function queueSweepAndHaul(p)
+    local gres = gatherRectOrChop()
+    local logs = AFCore.logsInRect(gres)
+    if #logs == 0 then return 0 end
+    local moved = 0
+    for _,wio in ipairs(logs) do
+        local sq = wio:getSquare()
+        ISTimedActionQueue.add(ISWalkToAction:new(p, sq))
+        ISTimedActionQueue.add(ISPickupWorldItemAction:new(p, wio, 30))
+        ISTimedActionQueue.add(ISWalkToAction:new(p, AFCore.pileSq))
+        -- try to find the picked Log in inventory and drop it to the pile sq
+        local inv = p:getInventory()
+        local item = inv:FindAndReturn("Base.Log")
+        if item then
+            ISTimedActionQueue.add(ISDropWorldItemAction:new(p, item, AFCore.pileSq:getX(), AFCore.pileSq:getY(), AFCore.pileSq:getZ()))
+            moved = moved + 1
+        end
     end
-  end
-end
-
-function AutoChopTask.setChopRect(rect, area)
-  AutoChopTask.chopRect = AFCore.normalizeRect(rect or {})
-  AFLOG("RECT","chop", AutoChopTask.chopRect and (AutoChopTask.chopRect[1]..","..AutoChopTask.chopRect[2].." "..AutoChopTask.chopRect[3]..","..AutoChopTask.chopRect[4]) or "nil")
-end
-
-function AutoChopTask.setGatherRect(rect, area)
-  AutoChopTask.gatherRect = AFCore.normalizeRect(rect or {})
-  AFLOG("RECT","gather", AutoChopTask.gatherRect and (AutoChopTask.gatherRect[1]..","..AutoChopTask.gatherRect[2].." "..AutoChopTask.gatherRect[3]..","..AutoChopTask.gatherRect[4]) or "nil")
+    return moved
 end
 
 function AutoChopTask.startAreaJob(p)
-  p = AFCore.getPlayer(p)
-  if not AutoChopTask.chopRect then p:Say("Set chop area first."); return end
-  if not AFCore.getStockpile() then p:Say("Designate wood pile first."); return end
-  local trees = AFCore.treesInRect(AutoChopTask.chopRect)
-  if #trees == 0 then p:Say("No trees in chop area."); return end
+    p = p or getSpecificPlayer(0)
+    if not p or p:isDead() then return end
+    local rect = AutoChopTask.state.chopRect
+    if not rect then say(p, "Set chop area first."); return end
+    if not AFCore.pileSq then say(p, "Set a wood pile first."); return end
 
-  local n = AFCore.queueChops(p, trees)
-  ISTimedActionQueue.add(AFInstant:new(p, function() dropTreeLootNow(p) end))
-  p:Say(("Queued %d tree(s)."):format(n))
+    local trees = AFCore.treesInRect(rect)
+    local n = AFCore.queueChops(p, trees)
+    say(p, string.format("Queued %d chops.", n))
 
-  local rect = AutoChopTask.gatherRect or AutoChopTask.chopRect
-  ISTimedActionQueue.add(AFInstant:new(p, function() p:Say("Sweeping and hauling…") end))
-  AFSweep.enqueueSweep(p, rect)
-  AFSweep.enqueueHaulToPile(p, AFCore.getStockpile())
+    -- After chop queue, enqueue sweep & haul for the gather/chop rect
+    local moved = queueSweepAndHaul(p)
+    if moved > 0 then
+        say(p, string.format("Queued sweep/haul for %d logs.", moved))
+    else
+        say(p, "No logs to haul (yet).")
+    end
 end

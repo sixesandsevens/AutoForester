@@ -1,40 +1,46 @@
 -- AF_SelectAdapter.lua
 local ok, ASS = pcall(require, "JB_ASSUtils")
 local HAS_ASS = ok and type(ASS)=="table"
-require "ISCoordConversion"
-require "AutoForester_Debug"
-require "AF_SelectArea"
 
 AF_Select = AF_Select or {}
 
+-- One tile: choose the tile under the cursor immediately
 function AF_Select.pickSquare(worldObjects, p, cb)
   if HAS_ASS and ASS.SelectSingleSquare then
-    return ASS.SelectSingleSquare(worldObjects, p, function(playerObj, wos, square) cb(square) end)
-  else
-    local mx,my = getMouseXScaled(), getMouseYScaled()
-    local z = (p and p:getZ()) or 0
-    local wx = ISCoordConversion.ToWorldX(mx,my,0)
-    local wy = ISCoordConversion.ToWorldY(mx,my,0)
-    local cell = getCell(); if not cell then cb(nil); return end
-    cb(cell:getGridSquare(math.floor(wx), math.floor(wy), z))
+    -- Use ASS if present
+    return ASS.SelectSingleSquare(worldObjects, p, function(playerObj, wos, square)
+      cb(square)
+    end)
   end
+  -- Fallback: get the current mouse square right away
+  local cell = getCell(); if not cell then cb(nil); return end
+  local mx,my = getMouseXScaled(), getMouseYScaled()
+  local wx = ISCoordConversion.ToWorldX(mx,my,z)
+  local wy = ISCoordConversion.ToWorldY(mx,my,z)
+  local z = (p and p.getZ and p:getZ()) or 0
+  local sq = cell:getGridSquare(math.floor(wx), math.floor(wy), z)
+  cb(sq)
 end
 
+-- Drag-select an area; callback receives (rectTable, areaTable)
 function AF_Select.pickArea(worldObjects, p, cb, tag)
   if HAS_ASS and ASS.SelectArea then
     return ASS.SelectArea(worldObjects, p, function(playerObj, wos, area)
-      if not area or (area.numSquares or 0)==0 then cb(nil); return end
-      local minX, minY = area.minX or area[1], area.minY or area[2]
-      local maxX, maxY = area.maxX or area[3], area.maxY or area[4]
-      local z = area.z or (p and p:getZ()) or 0
-      local r = AFCore.normalizeRect({minX,minY,maxX,maxY,z})
-      cb(r, { areaWidth = r and (r[3]-r[1]+1) or 0, areaHeight = r and (r[4]-r[2]+1) or 0 })
-    end, tag)
-  else
-    return AF_SelectArea.start(tag, p, function(rect)
-      local r = AFCore.normalizeRect(rect)
-      if not r then cb(nil); return end
-      cb(r, { areaWidth = (r[3]-r[1]+1), areaHeight = (r[4]-r[2]+1) })
-    end)
+      if not area then cb(nil); return end
+      local minX = area.minX or area[1]
+      local minY = area.minY or area[2]
+      local maxX = area.maxX or area[3]
+      local maxY = area.maxY or area[4]
+      local z = area.z or (p and p.getZ and p:getZ()) or 0
+      cb({minX, minY, maxX, maxY, z}, area)
+    end, tag or "area")
   end
+  if not AF_SelectArea or not AF_SelectArea.start then
+    if p and p.Say then p:Say("Area tool not loaded.") end
+    cb(nil)
+    return
+  end
+  AF_SelectArea.start(tag or "area", p, cb)
 end
+
+return AF_Select

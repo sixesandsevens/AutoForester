@@ -1,5 +1,5 @@
-name=AutoForester (dev drop)
+name=AutoForester
 id=AutoForester
+description=Auto-chop trees; sweep/haul logs to a designated pile. (Dev build with sweep & haul queueing.)
 poster=poster.png
-description=Chop trees in a selected area, sweep up wood, and haul to a designated pile. Dev build for testing.
-version=0.3
+version=0.2.4
