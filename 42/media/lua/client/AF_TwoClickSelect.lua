@@ -1,5 +1,9 @@
 -- media/lua/client/AF_TwoClickSelect.lua
 require "ISUI/ISCoordConversion"
+local AF_Log = require "AF_Log"
+local AFCore = require "AF_Core"
+
+local AF_Select = AF_Select or {}
 
 local Picker = nil
 
@@ -10,42 +14,52 @@ local function stopPicker()
     Picker = nil
 end
 
-local function worldSquareUnderMouse(p)
-    return AFCore.getMouseSquare(p)
+local function worldSquareUnderMouse(z)
+    local mx = getMouseXScaled and getMouseXScaled() or getMouseX()
+    local my = getMouseYScaled and getMouseYScaled() or getMouseY()
+    local wx = ISCoordConversion.ToWorldX(mx, my, 0)
+    local wy = ISCoordConversion.ToWorldY(mx, my, 0)
+    local cell = getCell(); if not cell then return nil end
+    return cell:getGridSquare(math.floor(wx), math.floor(wy), z or 0)
 end
 
--- Public: AF_Select.pickArea(worldobjects, playerIndex, callback(rect), reasonTag)
-AF_Select = AF_Select or {}
-function AF_Select.pickArea(_, player, callback, reasonTag)
+function AF_Select.pickArea(worldobjects, p, callback, reasonTag)
     stopPicker()
-    local p = getSpecificPlayer(player) or getPlayer()
-    if not p then return end
-    local z = p:getZ() or 0
-    Picker = { stage=0, x1=nil, y1=nil, z=z, p=p, cb=callback, tag=reasonTag }
+    local player = p or getSpecificPlayer(0) or getPlayer()
+    if not player then return end
+    local z = player:getZ() or 0
+    Picker = { stage = 0, p = player, z = z, cb = callback }
 
-    function Picker.onMouseDown()
-        local sq = worldSquareUnderMouse(Picker.p)
-        if not sq then return end
-        local x, y = sq:getX(), sq:getY()
-        if Picker.stage == 0 then
-            Picker.stage = 1
-            Picker.x1, Picker.y1 = x, y
-            Picker.p:Say("Corner A")
-        else
+    function Picker.onKeyPressed(key)
+        if key == Keyboard.KEY_ESCAPE then
+            AF_Log.warn("Selection cancelled")
+            player:Say("No area.")
             stopPicker()
-            local rect = { Picker.x1, Picker.y1, x, y }
-            if Picker.cb then pcall(Picker.cb, rect, {x1=Picker.x1,y1=Picker.y1,x2=x,y2=y}, Picker.tag) end
         end
     end
 
-    function Picker.onKeyPressed(key)
-        if key == Keyboard.KEY_ESCAPE or key == Keyboard.KEY_RBUTTON then
-            stopPicker()
-            Picker.p:Say("Selection cancelled.")
+    function Picker.onMouseDown(x, y)
+        if not Picker then return end
+        local sq = worldSquareUnderMouse(Picker.z)
+        if not sq then player:Say("No tile."); stopPicker(); return end
+        if Picker.stage == 0 then
+            Picker.sx, Picker.sy = sq:getX(), sq:getY()
+            Picker.stage = 1
+            player:Say("First corner set.")
+            return
         end
+        local x1, y1 = Picker.sx, Picker.sy
+        local x2, y2 = sq:getX(), sq:getY()
+        local rect = AFCore.normalizeRect({x1, y1, x2, y2})
+        stopPicker()
+        if not rect then player:Say("No area."); return end
+        AF_Log.info("Rect picked:", rect[1], rect[2], rect[3], rect[4])
+        if Picker.cb then Picker.cb(rect, { areaWidth = rect[3]-rect[1]+1, areaHeight = rect[4]-rect[2]+1 }) end
     end
 
     Events.OnMouseDown.Add(Picker.onMouseDown)
     Events.OnKeyPressed.Add(Picker.onKeyPressed)
-    p:Say("Select two corners.")
+    player:Say("Pick two corners (ESC to cancel).")
 end
+
+return AF_Select

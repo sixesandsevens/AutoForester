@@ -1,22 +1,26 @@
--- media/lua/shared/AF_Log.lua
-AF_Log = AF_Log or {}
+-- AutoForester simple logger (shared)
+local AF_Log = {}
 
-local function vcat(...)
-    local t = {}
-    for i=1,select('#', ...) do
-        t[#t+1] = tostring(select(i, ...))
+local function _emit(level, ...)
+    local parts = {"[AutoForester]", level}
+    for i=1,select("#", ...) do
+        local v = select(i, ...)
+        parts[#parts+1] = tostring(v)
     end
-    return table.concat(t, " ")
+    print(table.concat(parts, " "))
 end
 
-function AF_Log.info(...)
-    print("[AutoForester][INFO] "..vcat(...))
+function AF_Log.info(...)  _emit("INFO",  ...) end
+function AF_Log.warn(...)  _emit("WARN",  ...) end
+function AF_Log.err(...)   _emit("ERROR", ...) end
+
+function AF_Log.safe(tag, fn, ...)
+    local ok, res1, res2 = pcall(fn, ...)
+    if not ok then
+        AF_Log.err(tag, res1)
+        return nil
+    end
+    return res1, res2
 end
 
-function AF_Log.warn(...)
-    print("[AutoForester][WARN] "..vcat(...))
-end
-
-function AF_Log.err(...)
-    print("[AutoForester][ERR ] "..vcat(...))
-end
+return AF_Log
