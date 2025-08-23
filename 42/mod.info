@@ -1,6 +1,5 @@
 name=AutoForester
 id=AutoForester
-description=Automates tree chopping and log hauling in singleplayer (Build 42).
-version=1.0
+description=Automates tree chopping and log hauling in singleplayer (Build 42). Minimal, dependency-optional.
+version=1.0.1
 author=SixesAndSevens
-

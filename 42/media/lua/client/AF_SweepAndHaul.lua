@@ -1,3 +1,6 @@
+-- media/lua/client/AF_SweepAndHaul.lua
+AFSweep = AFSweep or {}
+
 local WOOD = { ["Base.Log"]=true, ["Base.TreeBranch"]=true, ["Base.LargeBranch"]=true, ["Base.Twigs"]=true, ["Base.Sapling"]=true }
 
 local function eachGroundItemInRect(rect, fn)
@@ -16,19 +19,17 @@ local function eachGroundItemInRect(rect, fn)
   end
 end
 
-AFSweep = {}
-
-function AFSweep.enqueueSweep(player, rect)
+function AFSweep.enqueueSweep(p, rect)
   eachGroundItemInRect(rect, function(sq, it)
-    ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
-    ISTimedActionQueue.add(ISPickupWorldItemAction:new(player, it, sq:getX(), sq:getY(), sq:getZ()))
+    ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
+    ISTimedActionQueue.add(ISPickupWorldItemAction:new(p, it, sq:getX(), sq:getY(), sq:getZ()))
   end)
 end
 
-function AFSweep.enqueueHaulToPile(player, pileSq)
-  ISTimedActionQueue.add(ISWalkToTimedAction:new(player, pileSq))
-  -- drop *all* wood in inventory at the pile:
-  ISTimedActionQueue.add(ISInventoryTransferAllToFloorAction:new(player, pileSq, function(item)
+function AFSweep.enqueueHaulToPile(p, pileSq)
+  if not pileSq then return end
+  ISTimedActionQueue.add(ISWalkToTimedAction:new(p, pileSq))
+  ISTimedActionQueue.add(ISInventoryTransferAllToFloorAction:new(p, pileSq, function(item)
     return WOOD[item:getFullType()] or false
   end))
 end

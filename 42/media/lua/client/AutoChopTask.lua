@@ -1,3 +1,4 @@
+-- media/lua/client/AutoChopTask.lua
 require "AutoForester_Core"
 require "AF_SweepAndHaul"
 require "AF_Instant"
@@ -14,6 +15,14 @@ local function dropTreeLootNow(p)
       end
     end
   end
+end
+
+function AutoChopTask.setChopRect(rect, area)
+  AutoChopTask.chopRect = rect
+end
+
+function AutoChopTask.setGatherRect(rect, area)
+  AutoChopTask.gatherRect = rect
 end
 
 function AutoChopTask.startAreaJob(p)
