@@ -13,7 +13,10 @@ local function addMenu(playerIndex, context, worldObjects, test)
     context:addOption("Designate Wood Pile Here", worldObjects, function()
         AF_Log.safe("setStockpile", function()
             local sq = AFCore.getMouseSquare(p)
-            if not sq then p:Say("No tile."); return end
+            if not sq then 
+                p:Say("No tile.") 
+                return 
+            end
             AFCore.setStockpile(sq)
             p:Say("Wood pile set.")
         end)
@@ -22,35 +25,49 @@ local function addMenu(playerIndex, context, worldObjects, test)
     -- Set Chop Area (two-click selector; confirm in a later context open)
     context:addOption("Set Chop Area…", worldObjects, function()
         AF_Select.pickArea(worldObjects, p, function(rect, area)
-            if not rect then p:Say("No area."); return end
-            rect = AFCore.normalizeRect(rect); if not rect then p:Say("No area."); return end
+            if not rect then 
+                p:Say("No area.") 
+                return 
+            end
+            rect = AFCore.normalizeRect(rect)
+            if not rect then 
+                p:Say("No area.") 
+                return 
+            end
             AutoChopTask.setChopRect(rect, area)
             local w = area and area.areaWidth or AFCore.rectWidth(rect)
             local h = area and area.areaHeight or AFCore.rectHeight(rect)
-            p:Say(("Chop area: %dx%d."):format(w, h))
+            p:Say(string.format("Chop area: %dx%d.", w, h))
         end, "chop")
     end)
 
-    -- Set Gather Area (optional)
+    -- Set Gather Area (optional two-click selector)
     context:addOption("Set Gather Area…", worldObjects, function()
         AF_Select.pickArea(worldObjects, p, function(rect, area)
-            if not rect then p:Say("No area."); return end
-            rect = AFCore.normalizeRect(rect); if not rect then p:Say("No area."); return end
+            if not rect then 
+                p:Say("No area.") 
+                return 
+            end
+            rect = AFCore.normalizeRect(rect)
+            if not rect then 
+                p:Say("No area.") 
+                return 
+            end
             AutoChopTask.setGatherRect(rect, area)
             local w = area and area.areaWidth or AFCore.rectWidth(rect)
             local h = area and area.areaHeight or AFCore.rectHeight(rect)
-            p:Say(("Gather area: %dx%d."):format(w, h))
+            p:Say(string.format("Gather area: %dx%d.", w, h))
         end, "gather")
     end)
 
-    -- If we are between first and second click, offer a confirm item
+    -- If we are between first and second click, offer a confirm option
     if AF_Select.hasPending() then
         context:addOption("Confirm Area Corner", worldObjects, function()
             AF_Select.confirmPending(worldObjects, p)
         end)
     end
 
-    -- Start
+    -- Start AutoForester job
     context:addOption("Start AutoForester (Area)", worldObjects, function()
         AF_Log.safe("startAreaJob", function()
             AutoChopTask.startAreaJob(p)
@@ -58,5 +75,6 @@ local function addMenu(playerIndex, context, worldObjects, test)
     end)
 end
 
+-- Avoid duplicate additions and register the context menu filler
 Events.OnFillWorldObjectContextMenu.RemoveByName("AutoForester-Context")
 Events.OnFillWorldObjectContextMenu.Add(addMenu)
