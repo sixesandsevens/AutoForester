@@ -1,8 +1,11 @@
 -- AFCore_overrides.lua (patch build)
 -- Keeps your original AFCore but overrides specific helpers safely.
 
+require "ISCoordConversion"
+
 AFCore = AFCore or {}
 
+-- Tile under mouse (no extra click) at player's Z
 function AFCore.getMouseSquare(p)
     local mx, my = getMouseScaled()
     local z = (p and p:getZ()) or 0
@@ -13,16 +16,21 @@ function AFCore.getMouseSquare(p)
     return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
 end
 
+-- Rect helpers
+function AFCore.rectWidth(rect)  return (rect[3] - rect[1] + 1) end
+function AFCore.rectHeight(rect) return (rect[4] - rect[2] + 1) end
+
 -- Accept either a Rect-like object (getX/getY/getX2/getY2) or an {x1,y1,x2,y2[,z]} array.
 function AFCore.normalizeRect(r)
     if not r then return nil end
     if type(r) == "table" and r.getX then
-        local x1, y1 = r:getX(), r:getY()
+        local x1, y1 = r:getX(),  r:getY()
         local x2, y2 = r:getX2(), r:getY2()
-        local z = r.getZ and r:getZ() or 0
+        local z = r.z or r:getZ() or 0
+        if not x1 or not y1 or not x2 or not y2 then return nil end
         if x1 > x2 then x1, x2 = x2, x1 end
         if y1 > y2 then y1, y2 = y2, y1 end
-        return {x1, y1, x2, y2, z}
+        return { x1, y1, x2, y2, z }
     elseif type(r) == "table" then
         local x1, y1 = tonumber(r[1]), tonumber(r[2])
         local x2, y2 = tonumber(r[3]), tonumber(r[4])
@@ -30,7 +38,7 @@ function AFCore.normalizeRect(r)
         if not x1 or not y1 or not x2 or not y2 then return nil end
         if x1 > x2 then x1, x2 = x2, x1 end
         if y1 > y2 then y1, y2 = y2, y1 end
-        return {x1, y1, x2, y2, z}
+        return { x1, y1, x2, y2, z }
     end
     return nil
 end
