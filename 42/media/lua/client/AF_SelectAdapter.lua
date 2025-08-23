@@ -1,49 +1,25 @@
 -- AF_SelectAdapter.lua
--- Minimal, dependency-free area/tile selection helpers used by AutoForester.
--- If the JBASS/Utils library is present and exposes `AF_Select`, we noop and defer to it.
-
-if AF_Select and AF_Select.__providedByJBASS then
-    return -- External implementation present.
-end
-
 AF_Select = AF_Select or {}
-AF_Select.__providedByJBASS = false
+local _firstCorner = nil
 
-local function say(p, msg) if p and msg then p:Say(msg) end end
-
-local function keyFor(p, purpose)
-    return string.format("p%s:%s", tostring(p and p:getPlayerNum() or 0), tostring(purpose or "generic"))
-end
-
-AF_Select._state = AF_Select._state or {}
-
--- Pick a single square (tile) under the mouse at the moment the option is clicked.
-function AF_Select.pickSquare(worldobjects, p, cb)
+-- Immediate square under mouse
+function AF_Select.pickSquare(worldObjects, p, cb)
     local sq = AFCore.getMouseSquare(p)
-    if not sq then say(p, "No tile."); if cb then cb(nil) end; return end
     if cb then cb(sq) end
 end
 
--- Fallback two-click rectangle picker.
--- First invocation stores corner 1 at the mouse. Second invocation returns rect+area.
-function AF_Select.pickArea(worldobjects, p, cb, purpose)
-    local sq = AFCore.getMouseSquare(p)
-    if not sq then say(p, "No tile."); if cb then cb(nil, nil) end; return end
-
-    local k = keyFor(p, purpose)
-    local st = AF_Select._state[k]
-    if not st then
-        AF_Select._state[k] = { x = sq:getX(), y = sq:getY(), z = sq:getZ() }
-        say(p, "First corner set. Pick opposite corner.")
+-- Fallback two-click area picker; works without external libs
+function AF_Select.pickArea(worldObjects, p, cb, tag)
+    if not _firstCorner then
+        local sq = AFCore.getMouseSquare(p)
+        if not sq then if p then p:Say("No tile.") end; return end
+        _firstCorner = { sq:getX(), sq:getY(), sq:getZ() or 0 }
+        if p then p:Say("First corner set. Pick opposite corner.") end
         return
     end
-
-    local rect = { st.x, st.y, sq:getX(), sq:getY(), st.z or sq:getZ() }
-    AF_Select._state[k] = nil
-
-    rect = AFCore.normalizeRect(rect)
-    if not rect then say(p, "No area."); if cb then cb(nil, nil) end; return end
-
-    local area = { areaWidth = AFCore.rectWidth(rect), areaHeight = AFCore.rectHeight(rect) }
-    if cb then cb(rect, area) end
+    local sq = AFCore.getMouseSquare(p)
+    if not sq then if p then p:Say("No tile.") end; return end
+    local rect = { _firstCorner[1], _firstCorner[2], sq:getX(), sq:getY(), _firstCorner[3] }
+    _firstCorner = nil
+    if cb then cb(rect, nil) end
 end

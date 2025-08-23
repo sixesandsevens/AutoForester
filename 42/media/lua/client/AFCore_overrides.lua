@@ -1,46 +1,51 @@
--- AFCore_overrides.lua (patch build)
--- Keeps your original AFCore but overrides specific helpers safely.
-
+-- AFCore_overrides.lua
 require "ISCoordConversion"
 
 AFCore = AFCore or {}
 
--- Tile under mouse (no extra click) at player's Z
+-- Screen mouse (already scaled)
+function AFCore.getMouseScaled()
+    return getMouseXScaled(), getMouseYScaled()
+end
+
+-- Tile under mouse at the player's Z (no extra click)
 function AFCore.getMouseSquare(p)
-    local mx, my = getMouseScaled()
+    local mx, my = AFCore.getMouseScaled()
+    local wx = ISCoordConversion.ToWorldX(mx, my, 0)
+    local wy = ISCoordConversion.ToWorldY(mx, my, 0)
     local z = (p and p:getZ()) or 0
-    local wx = ISCoordConversion.ToWorldX(mx, my, z)
-    local wy = ISCoordConversion.ToWorldY(mx, my, z)
     local cell = getCell()
     if not cell then return nil end
     return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
 end
 
--- Rect helpers
-function AFCore.rectWidth(rect)  return (rect[3] - rect[1] + 1) end
-function AFCore.rectHeight(rect) return (rect[4] - rect[2] + 1) end
-
--- Accept either a Rect-like object (getX/getY/getX2/getY2) or an {x1,y1,x2,y2[,z]} array.
-function AFCore.normalizeRect(r)
-    if not r then return nil end
-    if type(r) == "table" and r.getX then
-        local x1, y1 = r:getX(),  r:getY()
-        local x2, y2 = r:getX2(), r:getY2()
-        local z = r.z or r:getZ() or 0
-        if not x1 or not y1 or not x2 or not y2 then return nil end
-        if x1 > x2 then x1, x2 = x2, x1 end
-        if y1 > y2 then y1, y2 = y2, y1 end
-        return { x1, y1, x2, y2, z }
-    elseif type(r) == "table" then
-        local x1, y1 = tonumber(r[1]), tonumber(r[2])
-        local x2, y2 = tonumber(r[3]), tonumber(r[4])
-        local z = tonumber(r[5]) or 0
-        if not x1 or not y1 or not x2 or not y2 then return nil end
-        if x1 > x2 then x1, x2 = x2, x1 end
-        if y1 > y2 then y1, y2 = y2, y1 end
-        return { x1, y1, x2, y2, z }
+-- Accept IsoRect-like or {x1,y1,x2,y2[,z]}
+function AFCore.normalizeRect(rect)
+    if not rect then return nil end
+    local x1,y1,x2,y2,z
+    if type(rect) == "table" and rect.getX then
+        x1,y1,x2,y2 = rect:getX(), rect:getY(), rect:getX2(), rect:getY2()
+        z = rect.z or 0
+    else
+        x1,y1,x2,y2 = tonumber(rect[1]), tonumber(rect[2]), tonumber(rect[3]), tonumber(rect[4])
+        z = rect[5] or 0
     end
-    return nil
+    if not x1 or not y1 or not x2 or not y2 then return nil end
+    local rx1, ry1 = math.min(x1,x2), math.min(y1,y2)
+    local rx2, ry2 = math.max(x1,x2), math.max(y1,y2)
+    return {rx1, ry1, rx2, ry2, z}
 end
 
-print("AutoForester (patch): AFCore overrides loaded")
+function AFCore.rectWidth(rect)
+    if type(rect) == "table" and rect.getX then
+        return math.abs(rect:getX2() - rect:getX()) + 1
+    end
+    return math.abs(rect[3] - rect[1]) + 1
+end
+
+function AFCore.rectHeight(rect)
+    if type(rect) == "table" and rect.getY then
+        return math.abs(rect:getY2() - rect:getY()) + 1
+    end
+    return math.abs(rect[4] - rect[2]) + 1
+end
