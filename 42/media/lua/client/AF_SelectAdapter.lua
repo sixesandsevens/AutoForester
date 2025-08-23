@@ -1,59 +1,40 @@
 -- AF_SelectAdapter.lua
-local ok, ASS = pcall(require, "JB_ASSUtils")
-local HAS_ASS = ok and type(ASS)=="table"
-
+-- Provide AF_Select.* even if JBASS/Utils isn't present.
 AF_Select = AF_Select or {}
 
--- One tile: choose the tile under the cursor immediately
-function AF_Select.pickSquare(worldObjects, p, cb)
-  if HAS_ASS and ASS.SelectSingleSquare then
-    -- Use ASS if present
-    return ASS.SelectSingleSquare(worldObjects, p, function(playerObj, wos, square)
-      cb(square)
-    end)
-  end
-  -- Fallback: get the current mouse square right away
-  local cell = getCell(); if not cell then cb(nil); return end
-  local mx,my = getMouseXScaled(), getMouseYScaled()
-  local wx = ISCoordConversion.ToWorldX(mx,my,z)
-  local wy = ISCoordConversion.ToWorldY(mx,my,z)
-  local z = (p and p.getZ and p:getZ()) or 0
-  local sq = cell:getGridSquare(math.floor(wx), math.floor(wy), z)
-  cb(sq)
+local function say(p, msg) if p and p.Say then p:Say(tostring(msg)) end end
+
+-- Click current mouse tile and return it via cb(square)
+function AF_Select.pickSquare(worldobjects, p, cb)
+    local sq = AFCore and AFCore.getMouseSquare and AFCore.getMouseSquare(p) or nil
+    if cb then cb(sq) end
 end
 
--- Drag-select an area; callback receives (rectTable, areaTable)
-function AF_Select.pickArea(worldObjects, p, cb, tag)
-  if HAS_ASS and ASS.SelectArea then
-    return ASS.SelectArea(worldObjects, p, function(playerObj, wos, area)
-      if not area then cb(nil); return end
-      local minX = area.minX or area[1]
-      local minY = area.minY or area[2]
-      local maxX = area.maxX or area[3]
-      local maxY = area.maxY or area[4]
-      local z = area.z or (p and p.getZ and p:getZ()) or 0
-      cb({minX, minY, maxX, maxY, z}, area)
-    end, tag or "area")
-  end
-  if not AF_SelectArea or not AF_SelectArea.start then
-    if p and p.Say then p:Say("Area tool not loaded.") end
-    cb(nil)
-    return
-  end
-  AF_SelectArea.start(tag or "area", p, cb)
+-- Two-click fallback area: first click sets corner A, second click sets B and returns rect
+AF_Select._state = AF_Select._state or {}
+
+local function _keyForPlayer(p, purpose)
+    purpose = purpose or "default"
+    local pid = (p and p:getOnlineID()) or 0
+    return tostring(pid) .. "::" .. purpose
 end
 
-return AF_Select
+function AF_Select.pickArea(worldobjects, p, cb, purpose)
+    local key = _keyForPlayer(p, purpose)
+    local sq = AFCore.getMouseSquare(p)
+    if not sq then if p then say(p, "No tile.") end if cb then cb(nil) end return end
 
-
--- Square under the original context-click (from worldObjects list)
-function AF_Select.getMenuSquare(worldObjects)
-    if type(worldObjects) ~= "table" then return nil end
-    for _,o in ipairs(worldObjects) do
-        if o and o.getSquare then
-            local sq = o:getSquare()
-            if sq then return sq end
-        end
+    local st = AF_Select._state[key]
+    if not st then
+        AF_Select._state[key] = { x = sq:getX(), y = sq:getY(), z = sq:getZ() }
+        say(p, "First corner set. Pick opposite corner.")
+        return
     end
-    return nil
+
+    local rect = { st.x, st.y, sq:getX(), sq:getY() }
+    rect = AFCore.normalizeRect(rect)
+    AF_Select._state[key] = nil
+
+    local area = { areaWidth = AFCore.rectWidth(rect), areaHeight = AFCore.rectHeight(rect) }
+    if cb then cb(rect, area) end
 end

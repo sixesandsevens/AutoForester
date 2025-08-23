@@ -1,5 +1,5 @@
-name=AutoForester
+name=AutoForester (Patch)
 id=AutoForester
-description=Automates tree chopping and log hauling (B42). No hard dependency on JB_ASSUtils.
-version=1.1.1
-author=SixesAndSevens
+description=Safer mouse picking + JBASS-free area selection fallback. Context menu & logging fixes.
+poster=poster.png
+version=0.2.0
