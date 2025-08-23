@@ -1,45 +1,50 @@
--- Idempotent, deterministic adapter. This file may be loaded multiple times.
-require "AF_Log"
-
+-- AF_SelectAdapter.lua
 AF_Select = AF_Select or {}
-if AF_Select.__inited then return AF_Select end
-AF_Select.__inited = true
 
--- Tiny shim: delegate to the game’s rectangle picker we hook once.
--- We expose a single, stable API: AF_Select.pickArea(worldobjects, playerObj, onPicked)
--- onPicked(rect, area) is called with either a 4-number rect or nil.
-local _ctx = {}
-
--- install hook once; we do NOT nil or override vanilla functions
-if not _ctx.hooked then
-    _ctx.hooked = true
-    -- If you use a custom drag selector, initialise it here once, not per-click.
-    -- (If you previously patched ISObjectClickHandler / ISContextMenu, remove those overrides.)
+local function say(playerObj, msg)
+  if playerObj and playerObj.Say then playerObj:Say(msg) end
 end
 
-function AF_Select.pickArea(worldobjects, p, onPicked)
-    -- Defensive: these callbacks fire later; don’t keep brittle upvalues around.
-    local pid = p and p:getPlayerNum() or 0
-    AF.log("pickArea begin (pid=", pid, ")")
-
-    -- Your existing selector start code goes here. Example pattern:
-    -- Start a rectangle selection UI, and in its OnFinished do:
-    local function done(rect, area)
-        local playerNow = getSpecificPlayer(pid) or getPlayer()
-        AF.safe("AF_Select.done", function()
-            if onPicked then onPicked(rect, area, playerNow) end
-        end)
+local function probeJB()
+  local jb = rawget(_G, "JB") or rawget(_G, "JB_ASSUtils") or rawget(_G, "ASS") or nil
+  if jb and type(jb) == "table" then
+    if jb.AreaSelect and (jb.AreaSelect.pick or jb.AreaSelect.Pick or jb.AreaSelect.Start) then
+      return "JB.AreaSelect", jb.AreaSelect
     end
-
-    -- If you had a working implementation already, call into it here.
-    -- e.g., startYourRectPicker(worldobjects, p, done)
-
-    -- TEMP: as a guard while we stabilise selection, immediately fail gracefully
-    -- if no picker is currently wired (prevents 'call nil' crashes).
-    if not startYourRectPicker then
-        AF.log("No rect picker wired; returning nil to caller safely.")
-        done(nil, nil)
+    if jb.Select and (jb.Select.pick or jb.Select.Pick or jb.Select.Start) then
+      return "JB.Select", jb.Select
     end
+  end
+  local pick = rawget(_G, "ASS_PickArea") or rawget(_G, "JB_PickArea")
+  if pick and type(pick) == "function" then
+    return "FUNC", { pick = pick }
+  end
+  return nil, nil
+end
+
+function AF_Select.pickArea(worldObjects, playerObj, cb, tag)
+  local kind, mod = probeJB()
+  if kind and mod then
+    local picker = mod.pick or mod.Pick or mod.Start
+    if type(picker) == "function" then
+      local ok, err = pcall(function()
+        picker(worldObjects, playerObj, function(rect, area)
+          local r = rect
+          if r and r.x1 then r = { r.x1, r.y1, r.x2 or r.x1, r.y2 or r.y1 } end
+          cb(r, area)
+        end, tag)
+      end)
+      if not ok then
+        say(playerObj, "AutoForester: selection lib error.")
+        print("AF_SelectAdapter: picker failed: "..tostring(err))
+        cb(nil, nil)
+      end
+      return
+    end
+  end
+  say(playerObj, "AutoForester: JB_ASSUtils selection not found.")
+  print("AF_SelectAdapter: JB selection library not found; returning nil area.")
+  cb(nil, nil)
 end
 
 return AF_Select
