@@ -1,5 +1,5 @@
 name=AutoForester
 id=AutoForester
-description=Automates tree chopping and log hauling (Build 42). Works with or without JB_ASSUtils.
-version=1.0.2
+description=Automates tree chopping and log hauling (B42). No hard dependency on JB_ASSUtils.
+version=1.1.1
 author=SixesAndSevens
