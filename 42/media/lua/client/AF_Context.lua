@@ -1,63 +1,53 @@
 -- media/lua/client/AF_Context.lua
-if rawget(_G, "AF_ContextLoaded") then return end
-_G.AF_ContextLoaded = true
+require "ISUI/ISWorldObjectContextMenu"
 
-require "AF_Core"
-require "AF_TwoClickSelect"
-require "ISUI/ISCoordConversion"
+local AF_Context = {}
 
-AF_Context = AF_Context or {}
-
-local function addOnce()
-    if AF_Context._hooked then return end
-    Events.OnFillWorldObjectContextMenu.Add(function(playerNum, context, worldobjects, test)
-        AF_Context.onFill(playerNum, context, worldobjects, test)
-    end)
-    AF_Context._hooked = true
-end
-
-function AF_Context.onFill(playerNum, context, worldobjects, test)
+function AF_Context.worldobjects(player, context, worldobjects, test)
     if test then return end
-    local player = getSpecificPlayer(playerNum) or getPlayer()
-    if not player then return end
+    local p = getSpecificPlayer(player) or getPlayer()
+    if not p or p:isDead() then return end
 
-    local added = {}
-
-    local function add(label, fn)
-        if added[label] then return end
-        added[label] = true
-        context:addOption(label, nil, fn)
-    end
-
-    add("Designate Wood Pile Here", function()
-        local sq = AFCore.getMouseSquare(player)
-        if sq then
-            AFCore.setStockpile(sq)
-            if player.Say then player:Say("Wood pile set.") end
-        else
-            if player.Say then player:Say("No square under mouse.") end
-        end
+    -- Designate pile (no click+drag, just uses the tile under the cursor right now)
+    context:addOption("Designate Wood Pile Here", worldobjects, function()
+        local sq = AFCore.getMouseSquare(p)
+        if not sq then p:Say("No tile."); return end
+        AFCore.setStockpile(sq)
+        p:Say("Wood pile set.")
     end)
 
-    add("Set Chop Area...", function()
-        AF_Select.pickArea(worldobjects, player, function(r)
-            AFCore.ChopArea = r
-            if player.Say then player:Say(string.format("Chop area: %d,%d to %d,%d", r.x1, r.y1, r.x2, r.y2)) end
-        end, "chop area")
+    -- Set Chop Area (two-click)
+    context:addOption("Set Chop Area...", worldobjects, function()
+        AF_Select.pickArea(worldobjects, player, function(rect)
+            rect = AFCore.normalizeRect(rect)
+            if not rect then p:Say("No area."); return end
+            AFCore.setArea("chop", rect)
+            local w = rect[3]-rect[1]+1
+            local h = rect[4]-rect[2]+1
+            p:Say(("Chop area: %dx%d"):format(w,h))
+        end, "chop")
     end)
 
-    add("Set Gather Area...", function()
-        AF_Select.pickArea(worldobjects, player, function(r)
-            AFCore.GatherArea = r
-            if player.Say then player:Say("Gather area set.") end
-        end, "gather area")
-    end)
-
-    add("Start AutoForester (Area)", function()
-        if not AFCore.ChopArea then if player.Say then player:Say("Set chop area first.") end return end
-        if not AFCore.getStockpile() then if player.Say then player:Say("Designate a wood pile first.") end return end
-        if player.Say then player:Say("AutoForester starting… (stub)") end
+    -- Set Gather Area (two-click)
+    context:addOption("Set Gather Area...", worldobjects, function()
+        AF_Select.pickArea(worldobjects, player, function(rect)
+            rect = AFCore.normalizeRect(rect)
+            if not rect then p:Say("No area."); return end
+            AFCore.setArea("gather", rect)
+            local w = rect[3]-rect[1]+1
+            local h = rect[4]-rect[2]+1
+            p:Say(("Gather area: %dx%d"):format(w,h))
+        end, "gather")
     end)
 end
 
-addOnce()
+-- Register once (prevents duplicated menu entries even after /reloadlua)
+local function registerOnce()
+    if AF_Context.__added then return end
+    Events.OnFillWorldObjectContextMenu.Add(AF_Context.worldobjects)
+    AF_Context.__added = true
+    print("[AutoForester] context menu registered")
+end
+Events.OnGameStart.Add(registerOnce)
+Events.OnCreatePlayer.Add(registerOnce)
+registerOnce()  -- helpful during dev reloads
