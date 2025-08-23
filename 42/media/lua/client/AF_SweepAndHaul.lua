@@ -1,13 +1,9 @@
 -- media/lua/client/AF_SweepAndHaul.lua
-require "AutoForester_Debug"
-local AFInstant = require "AF_Instant"
-
 AFSweep = AFSweep or {}
 
 local WOOD = { ["Base.Log"]=true, ["Base.TreeBranch"]=true, ["Base.LargeBranch"]=true, ["Base.Twigs"]=true, ["Base.Sapling"]=true }
 
 local function eachGroundItemInRect(rect, fn)
-  rect = AFCore and AFCore.normalizeRect(rect) or rect
   if not rect then return end
   local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
   local cell = getCell(); if not cell then return end
@@ -30,25 +26,24 @@ function AFSweep.enqueueSweep(p, rect)
   end)
 end
 
-local function dropWoodInInventory(p, pileSq)
-  if not pileSq then return end
-  local inv = p:getInventory()
-  local wanted = {}
-  for full,_ in pairs(WOOD) do wanted[#wanted+1] = full end
-  for _,full in ipairs(wanted) do
-    local items = inv:getItemsFromFullType(full)
-    if items then
-      for i=0,items:size()-1 do
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, pileSq))
-        ISTimedActionQueue.add(ISDropItemAction:new(p, items:get(i)))
-      end
-    end
-  end
-end
 
 function AFSweep.enqueueHaulToPile(p, pileSq)
   if not pileSq then return end
-  ISTimedActionQueue.add(AFInstant:new(p, function() dropWoodInInventory(p, pileSq) end))
+  ISTimedActionQueue.add(ISWalkToTimedAction:new(p, pileSq))
+  -- Drop all carried wood items on the pile square, one by one (compatible with B42)
+  ISTimedActionQueue.add(AFInstant:new(p, function()
+    local inv = p:getInventory()
+    if not inv then return end
+    local items = inv:getItems()
+    -- Iterate backwards because the list is modified as items are dropped
+    for i = items:size()-1, 0, -1 do
+      local it = items:get(i)
+      if it and WOOD[it:getFullType()] then
+        ISTimedActionQueue.add(ISDropItemAction:new(p, it)) -- drop to current square (pile)
+      end
+    end
+  end))
 end
 
 return AFSweep
+

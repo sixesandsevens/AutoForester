@@ -4,14 +4,6 @@ require "AF_SelectAdapter"
 require "AutoChopTask"
 require "AutoForester_Core"
 
-local function rectDims(rect)
-  rect = AFCore.normalizeRect(rect)
-  if not rect then return end
-  local w = rect[3]-rect[1]+1
-  local h = rect[4]-rect[2]+1
-  return w,h
-end
-
 local function addMenu(playerIndex, context, worldObjects, test)
   if test then return end
   local p = getSpecificPlayer(playerIndex or 0); if not p or not p:isAlive() then return end
@@ -27,7 +19,8 @@ local function addMenu(playerIndex, context, worldObjects, test)
     AF_Select.pickArea(worldObjects, p, function(rect, area)
       if not rect then p:Say("No area."); return end
       AutoChopTask.setChopRect(rect, area)
-      local w,h = rectDims(rect); if not w then p:Say("Area invalid."); return end
+      local w = (area and area.areaWidth) or (rect[3]-rect[1]+1)
+      local h = (area and area.areaHeight) or (rect[4]-rect[2]+1)
       p:Say(("Chop area: %dx%d."):format(w,h))
     end, "chop")
   end)
@@ -36,7 +29,8 @@ local function addMenu(playerIndex, context, worldObjects, test)
     AF_Select.pickArea(worldObjects, p, function(rect, area)
       if not rect then p:Say("No area."); return end
       AutoChopTask.setGatherRect(rect, area)
-      local w,h = rectDims(rect); if not w then p:Say("Area invalid."); return end
+      local w = (area and area.areaWidth) or (rect[3]-rect[1]+1)
+      local h = (area and area.areaHeight) or (rect[4]-rect[2]+1)
       p:Say(("Gather area: %dx%d."):format(w,h))
     end, "gather")
   end)

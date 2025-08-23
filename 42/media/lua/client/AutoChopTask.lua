@@ -1,26 +1,38 @@
 -- media/lua/client/AutoChopTask.lua
 require "AutoForester_Core"
 require "AF_SweepAndHaul"
-local AFInstant = require "AF_Instant"
+require "AF_Instant"
 
 AutoChopTask = AutoChopTask or { chopRect=nil, gatherRect=nil }
 
-local function storeRect(dstKey, rect, area)
-  local r = AFCore.normalizeRect(rect or area or {})
-  AutoChopTask[dstKey] = r
+local function dropTreeLootNow(p)
+  local inv = p:getInventory()
+  for _,full in ipairs({ "Base.Log","Base.TreeBranch","Base.LargeBranch","Base.Twigs","Base.Sapling" }) do
+    local items = inv:getItemsFromFullType(full)
+    if items then
+      for i=0, items:size()-1 do
+        ISTimedActionQueue.add(ISDropItemAction:new(p, items:get(i)))
+      end
+    end
+  end
 end
 
-function AutoChopTask.setChopRect(rect, area)   storeRect("chopRect", rect, area) end
-function AutoChopTask.setGatherRect(rect, area) storeRect("gatherRect", rect, area) end
+function AutoChopTask.setChopRect(rect, area)
+  AutoChopTask.chopRect = rect
+end
+
+function AutoChopTask.setGatherRect(rect, area)
+  AutoChopTask.gatherRect = rect
+end
 
 function AutoChopTask.startAreaJob(p)
   if not AutoChopTask.chopRect then p:Say("Set chop area first."); return end
   if not AFCore.getStockpile() then p:Say("Designate wood pile first."); return end
-
   local trees = AFCore.treesInRect(AutoChopTask.chopRect)
   if #trees == 0 then p:Say("No trees in chop area."); return end
 
   local n = AFCore.queueChops(p, trees)
+  ISTimedActionQueue.add(AFInstant:new(p, function() dropTreeLootNow(p) end))
   p:Say(("Queued %d tree(s)."):format(n))
 
   local rect = AutoChopTask.gatherRect or AutoChopTask.chopRect

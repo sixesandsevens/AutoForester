@@ -1,53 +1,37 @@
 -- media/lua/client/AF_SelectAdapter.lua
-require "ISCoordConversion"
+local ok, ASS = pcall(require, "JB_ASSUtils")
+local HAS_ASS = ok and type(ASS)=="table"
 
 AF_Select = AF_Select or {}
-AF_Select.DEFAULT_SIZE = AF_Select.DEFAULT_SIZE or 13
 
-local function _firstSquareFromWorldObjects(worldobjects)
-    if not worldobjects or type(worldobjects) ~= "table" then return nil end
-    for i=1,#worldobjects do
-        local o = worldobjects[i]
-        if o then
-            if o.getSquare and o:getSquare() then return o:getSquare() end
-            if o.square then return o.square end
-        end
-    end
-    return nil
-end
-
--- Convert mouse -> square
-local function _mouseSquare(p)
+-- One tile
+function AF_Select.pickSquare(worldObjects, p, cb)
+  if HAS_ASS and ASS.SelectSingleSquare then
+    return ASS.SelectSingleSquare(worldObjects, p, function(playerObj, wos, square)
+      cb(square)
+    end)
+  else
     local mx,my = getMouseXScaled(), getMouseYScaled()
+    local z = (p and p:getZ()) or 0
     local wx = ISCoordConversion.ToWorldX(mx,my,0)
     local wy = ISCoordConversion.ToWorldY(mx,my,0)
-    local z = (p and p.getZ and p:getZ()) or 0
-    local cell = getCell(); if not cell then return nil end
-    return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
+    local cell = getCell(); if not cell then cb(nil); return end
+    cb(cell:getGridSquare(math.floor(wx), math.floor(wy), z))
+  end
 end
 
-local function _rectAroundSquare(sq, size)
-    local half = math.floor((size or AF_Select.DEFAULT_SIZE)/2)
-    local x, y, z = sq:getX(), sq:getY(), sq:getZ()
-    return { x-half, y-half, x+half, y+half, z }
-end
-
--- Always returns a square (best-effort)
-function AF_Select.pickSquare(worldobjects, playerObjOrIndex, callback)
-    local p = playerObjOrIndex; if type(p) == "number" then p = getSpecificPlayer(p) end
-    local sq = _firstSquareFromWorldObjects(worldobjects) or _mouseSquare(p) or (p and p.getSquare and p:getSquare()) or nil
-    if callback then callback(sq) end
-end
-
--- For now we use click-to-center rectangle (no drag). Guarantees a rect.
-function AF_Select.pickArea(worldobjects, playerObjOrIndex, callback, tag)
-    local p = playerObjOrIndex; if type(p) == "number" then p = getSpecificPlayer(p) end
-    local sq = _firstSquareFromWorldObjects(worldobjects) or _mouseSquare(p) or (p and p.getSquare and p:getSquare()) or nil
-    if not sq then if callback then callback(nil) end; return end
-    local rect = _rectAroundSquare(sq, AF_Select.DEFAULT_SIZE)
-    if p and p.Say then
-        local w = rect[3]-rect[1]+1; local h = rect[4]-rect[2]+1
-        p:Say(string.format("[%s] Area set %dx%d @ %d,%d", tag or "AF", w, h, rect[1], rect[2]))
-    end
-    if callback then callback(rect) end
+-- Rectangle
+function AF_Select.pickArea(worldObjects, p, cb, tag)
+  if HAS_ASS and ASS.SelectArea then
+    return ASS.SelectArea(worldObjects, p, function(playerObj, wos, area)
+      if not area or not area.squares or area.numSquares == 0 then cb(nil); return end
+      local minX, minY = area.minX or area[1] or area.minX, area.minY or area[2] or area.minY
+      local maxX, maxY = area.maxX or area[3] or area.maxX, area.maxY or area[4] or area.maxY
+      local z = area.z or (p and p:getZ()) or 0
+      cb({minX, minY, maxX, maxY, z}, area)
+    end, tag)
+  else
+    if not AF_SelectArea or not AF_SelectArea.start then getPlayer():Say("Area tool not loaded."); cb(nil); return end
+    AF_SelectArea.start(tag, p, cb)
+  end
 end
