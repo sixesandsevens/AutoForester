@@ -18,11 +18,11 @@ local function dropTreeLootNow(p)
 end
 
 function AutoChopTask.setChopRect(rect, area)
-  AutoChopTask.chopRect = rect
+  AutoChopTask.chopRect = AFCore.normalizeRect(rect, (getPlayer() and getPlayer():getZ()) or 0)
 end
 
 function AutoChopTask.setGatherRect(rect, area)
-  AutoChopTask.gatherRect = rect
+  AutoChopTask.gatherRect = AFCore.normalizeRect(rect, (getPlayer() and getPlayer():getZ()) or 0)
 end
 
 function AutoChopTask.startAreaJob(p)

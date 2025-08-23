@@ -1,4 +1,4 @@
--- AutoForester_Core.lua
+-- media/lua/client/AutoForester_Core.lua
 require "ISCoordConversion"
 require "AutoForester_Debug"
 
@@ -8,8 +8,7 @@ AFCore = AFCore or {}
 function AFCore.getPlayer(pOrIndex)
   local idx = 0
   if type(pOrIndex) == "number" then idx = pOrIndex
-  elseif type(pOrIndex) == "table" and pOrIndex.getPlayerNum then idx = pOrIndex:getPlayerNum()
-  end
+  elseif type(pOrIndex) == "table" and pOrIndex.getPlayerNum then idx = pOrIndex:getPlayerNum() end
   return getSpecificPlayer(idx)
 end
 
@@ -31,21 +30,11 @@ function AFCore.setStockpile(sq)
     AFCore._pileSq:setHighlighted(false)
   end
   AFCore._pileSq = sq
-  if sq and sq.setHighlighted then
-    sq:setHighlighted(true)
-    if sq.setHighlightColor then sq:setHighlightColor(0.9, 0.8, 0.2) end
-  end
-  AFLOG("PILE","set", sq and sq:getX(), sq and sq:getY(), sq and sq:getZ())
+  if sq and sq.setHighlighted then sq:setHighlighted(true) end
 end
 
-function AFCore.getStockpile() return AFCore._pileSq end
-
-function AFCore.clearStockpile()
-  if AFCore._pileSq and AFCore._pileSq.setHighlighted then
-    AFCore._pileSq:setHighlighted(false)
-  end
-  AFCore._pileSq = nil
-  AFLOG("PILE","cleared")
+function AFCore.getStockpile()
+  return AFCore._pileSq
 end
 
 -- ---------- Trees ----------
@@ -68,15 +57,26 @@ function AFCore.getTreeFromSquare(sq)
   return nil
 end
 
+-- Normalize and coerce rect into numbers, returns {x1,y1,x2,y2,z} or nil
+function AFCore.normalizeRect(rect, defaultZ)
+  if not rect or type(rect)~="table" then return nil end
+  local x1 = tonumber(rect[1]); local y1 = tonumber(rect[2]); local x2 = tonumber(rect[3]); local y2 = tonumber(rect[4]); local z = tonumber(rect[5] or defaultZ or 0) or 0
+  if not (x1 and y1 and x2 and y2) then return nil end
+  if x2 < x1 then x1, x2 = x2, x1 end
+  if y2 < y1 then y1, y2 = y2, y1 end
+  return {x1,y1,x2,y2,z}
+end
+
 function AFCore.treesInRect(rect)
-  if not rect then return {} end
-  local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
+  local r = AFCore.normalizeRect(rect, 0)
+  if not r then return {} end
+  local x1,y1,x2,y2,z = r[1],r[2],r[3],r[4],r[5]
   local out = {}
   local cell = getCell(); if not cell then return out end
-  for y=y1,y2 do
-    for x=x1,x2 do
+  for x = x1, x2 do
+    for y = y1, y2 do
       local sq = cell:getGridSquare(x,y,z)
-      if AFCore.squareHasTree(sq) then table.insert(out, sq) end
+      if sq and AFCore.getTreeFromSquare(sq) then table.insert(out, sq) end
     end
   end
   return out
@@ -95,3 +95,5 @@ function AFCore.queueChops(p, squares)
   end
   return n
 end
+
+return AFCore
