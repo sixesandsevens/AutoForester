@@ -5,24 +5,24 @@ require "AF_Instant"
 
 AutoChopTask = AutoChopTask or { chopRect=nil, gatherRect=nil }
 
-local function dropTreeLootNow(p)
-  local inv = p:getInventory()
-  for _,full in ipairs({ "Base.Log","Base.TreeBranch","Base.LargeBranch","Base.Twigs","Base.Sapling" }) do
-    local items = inv:getItemsFromFullType(full)
-    if items then
-      for i=0, items:size()-1 do
-        ISTimedActionQueue.add(ISDropItemAction:new(p, items:get(i)))
-      end
-    end
-  end
-end
-
 function AutoChopTask.setChopRect(rect, area)
-  AutoChopTask.chopRect = rect
+  AutoChopTask.chopRect = {
+    tonumber(rect[1]), tonumber(rect[2]),
+    tonumber(rect[3]), tonumber(rect[4]),
+    tonumber((area and area.z) or rect[5] or 0)
+  }
 end
 
 function AutoChopTask.setGatherRect(rect, area)
-  AutoChopTask.gatherRect = rect
+  AutoChopTask.gatherRect = {
+    tonumber(rect[1]), tonumber(rect[2]),
+    tonumber(rect[3]), tonumber(rect[4]),
+    tonumber((area and area.z) or rect[5] or 0)
+  }
+end
+
+local function dropTreeLootNow(p)
+  -- no-op for now; loot will be swept & hauled
 end
 
 function AutoChopTask.startAreaJob(p)

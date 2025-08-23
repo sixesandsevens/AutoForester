@@ -1,4 +1,4 @@
--- AutoForester_Core.lua
+-- media/lua/client/AutoForester_Core.lua
 require "ISCoordConversion"
 require "AutoForester_Debug"
 
@@ -70,7 +70,10 @@ end
 
 function AFCore.treesInRect(rect)
   if not rect then return {} end
-  local x1,y1,x2,y2,z = rect[1],rect[2],rect[3],rect[4],rect[5] or 0
+  local x1 = tonumber(rect[1]); local y1 = tonumber(rect[2])
+  local x2 = tonumber(rect[3]); local y2 = tonumber(rect[4])
+  local z  = tonumber(rect[5]) or 0
+  if not (x1 and y1 and x2 and y2) then return {} end
   local out = {}
   local cell = getCell(); if not cell then return out end
   for y=y1,y2 do

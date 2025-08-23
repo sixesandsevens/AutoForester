@@ -24,14 +24,18 @@ end
 function AF_Select.pickArea(worldObjects, p, cb, tag)
   if HAS_ASS and ASS.SelectArea then
     return ASS.SelectArea(worldObjects, p, function(playerObj, wos, area)
-      if not area or not area.squares or area.numSquares == 0 then cb(nil); return end
-      local minX, minY = area.minX or area[1] or area.minX, area.minY or area[2] or area.minY
-      local maxX, maxY = area.maxX or area[3] or area.maxX, area.maxY or area[4] or area.maxY
-      local z = area.z or (p and p:getZ()) or 0
-      cb({minX, minY, maxX, maxY, z}, area)
+      if not area then cb(nil); return end
+      -- Normalize to {x1,y1,x2,y2,z}
+      local x1 = tonumber(area.minX or area[1])
+      local y1 = tonumber(area.minY or area[2])
+      local x2 = tonumber(area.maxX or area[3])
+      local y2 = tonumber(area.maxY or area[4])
+      local z  = tonumber(area.z or (p and p:getZ()) or 0)
+      if not (x1 and y1 and x2 and y2) then cb(nil); return end
+      cb({x1,y1,x2,y2,z}, area)
     end, tag)
   else
-    if not AF_SelectArea or not AF_SelectArea.start then getPlayer():Say("Area tool not loaded."); cb(nil); return end
+    if not AF_SelectArea or not AF_SelectArea.start then if p then p:Say("Area tool missing.") end; cb(nil); return end
     AF_SelectArea.start(tag, p, cb)
   end
 end
