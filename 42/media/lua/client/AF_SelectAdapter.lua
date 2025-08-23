@@ -73,3 +73,20 @@ function AF_Select.getMouseSquareFallback(playerIndex)
     if p and p.getSquare then return p:getSquare() end
     return nil
 end
+
+
+-- Public: pickSquare(..., callback(sq))
+-- Returns a best-effort square under the mouse / first worldobject / player's feet.
+function AF_Select.pickSquare(worldobjects, playerObjOrIndex, callback)
+    local playerObj = playerObjOrIndex
+    if type(playerObjOrIndex) == "number" then
+        playerObj = getSpecificPlayer(playerObjOrIndex)
+    end
+
+    local sq = _firstSquareFromWorldObjects(worldobjects)
+    if (not sq) and playerObj and playerObj.getSquare then
+        sq = playerObj:getSquare()
+    end
+
+    if callback then callback(sq) end
+end
