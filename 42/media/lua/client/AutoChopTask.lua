@@ -1,20 +1,17 @@
--- AutoChopTask.lua
+-- media/lua/client/AutoChopTask.lua
 require "AutoForester_Core"
 require "AF_SweepAndHaul"
 local AFInstant = require "AF_Instant"
 
 AutoChopTask = AutoChopTask or { chopRect=nil, gatherRect=nil }
 
-function AutoChopTask.setChopRect(rect, area)
-  AutoChopTask.chopRect = {
-    tonumber(rect[1]), tonumber(rect[2]), tonumber(rect[3]), tonumber(rect[4]), tonumber((area and area.z) or rect[5] or 0)
-  }
+local function storeRect(dstKey, rect, area)
+  local r = AFCore.normalizeRect(rect or area or {})
+  AutoChopTask[dstKey] = r
 end
-function AutoChopTask.setGatherRect(rect, area)
-  AutoChopTask.gatherRect = {
-    tonumber(rect[1]), tonumber(rect[2]), tonumber(rect[3]), tonumber(rect[4]), tonumber((area and area.z) or rect[5] or 0)
-  }
-end
+
+function AutoChopTask.setChopRect(rect, area)   storeRect("chopRect", rect, area) end
+function AutoChopTask.setGatherRect(rect, area) storeRect("gatherRect", rect, area) end
 
 function AutoChopTask.startAreaJob(p)
   if not AutoChopTask.chopRect then p:Say("Set chop area first."); return end

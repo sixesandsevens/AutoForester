@@ -1,15 +1,14 @@
--- AutoForester_Context.lua
+-- media/lua/client/AutoForester_Context.lua
 require "AutoForester_Debug"
 require "AF_SelectAdapter"
-require "AutoForester_Core"
 require "AutoChopTask"
+require "AutoForester_Core"
 
-local function rectDims(rect, area)
+local function rectDims(rect)
+  rect = AFCore.normalizeRect(rect)
   if not rect then return end
-  local x1=tonumber(rect[1]); local y1=tonumber(rect[2]); local x2=tonumber(rect[3]); local y2=tonumber(rect[4])
-  if not (x1 and y1 and x2 and y2) then return end
-  local w = (area and tonumber(area.areaWidth)) or (x2-x1+1)
-  local h = (area and tonumber(area.areaHeight)) or (y2-y1+1)
+  local w = rect[3]-rect[1]+1
+  local h = rect[4]-rect[2]+1
   return w,h
 end
 
@@ -28,7 +27,7 @@ local function addMenu(playerIndex, context, worldObjects, test)
     AF_Select.pickArea(worldObjects, p, function(rect, area)
       if not rect then p:Say("No area."); return end
       AutoChopTask.setChopRect(rect, area)
-      local w,h = rectDims(rect, area); if not w then p:Say("Area invalid."); return end
+      local w,h = rectDims(rect); if not w then p:Say("Area invalid."); return end
       p:Say(("Chop area: %dx%d."):format(w,h))
     end, "chop")
   end)
@@ -37,7 +36,7 @@ local function addMenu(playerIndex, context, worldObjects, test)
     AF_Select.pickArea(worldObjects, p, function(rect, area)
       if not rect then p:Say("No area."); return end
       AutoChopTask.setGatherRect(rect, area)
-      local w,h = rectDims(rect, area); if not w then p:Say("Area invalid."); return end
+      local w,h = rectDims(rect); if not w then p:Say("Area invalid."); return end
       p:Say(("Gather area: %dx%d."):format(w,h))
     end, "gather")
   end)
@@ -46,4 +45,5 @@ local function addMenu(playerIndex, context, worldObjects, test)
     AutoChopTask.startAreaJob(p)
   end)
 end
+
 Events.OnFillWorldObjectContextMenu.Add(addMenu)
