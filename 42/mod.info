@@ -1,5 +1,5 @@
 name=AutoForester
 id=AutoForester
-description=Auto-chop trees; sweep/haul logs to a designated pile. (Dev build with sweep & haul queueing.)
-poster=poster.png
-version=0.2.4
+description=Automates tree chopping and log hauling in singleplayer (Build 42). Minimal, dependency-optional.
+version=1.0.1
+author=SixesAndSevens

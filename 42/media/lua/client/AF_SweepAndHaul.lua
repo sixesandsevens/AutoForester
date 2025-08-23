@@ -26,24 +26,12 @@ function AFSweep.enqueueSweep(p, rect)
   end)
 end
 
-
 function AFSweep.enqueueHaulToPile(p, pileSq)
   if not pileSq then return end
   ISTimedActionQueue.add(ISWalkToTimedAction:new(p, pileSq))
-  -- Drop all carried wood items on the pile square, one by one (compatible with B42)
-  ISTimedActionQueue.add(AFInstant:new(p, function()
-    local inv = p:getInventory()
-    if not inv then return end
-    local items = inv:getItems()
-    -- Iterate backwards because the list is modified as items are dropped
-    for i = items:size()-1, 0, -1 do
-      local it = items:get(i)
-      if it and WOOD[it:getFullType()] then
-        ISTimedActionQueue.add(ISDropItemAction:new(p, it)) -- drop to current square (pile)
-      end
-    end
+  ISTimedActionQueue.add(ISInventoryTransferAllToFloorAction:new(p, pileSq, function(item)
+    return WOOD[item:getFullType()] or false
   end))
 end
 
 return AFSweep
-
