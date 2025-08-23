@@ -36,8 +36,6 @@ function AFCore.getMouseSquare(p)
   local cell = getCell(); if not cell then return nil end
   return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
 end
-    return cell:getGridSquare(math.floor(wx), math.floor(wy), z)
-end
 
 function AFCore.squareHasTree(sq)
     if not sq then return false end
@@ -47,7 +45,6 @@ function AFCore.squareHasTree(sq)
         if instanceof(o, "IsoTree") then return true end
     end
     return false
-end
 
 function AFCore.getTreeFromSquare(sq)
     if not sq then return nil end

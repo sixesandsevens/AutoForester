@@ -3,6 +3,7 @@ local ok, ASS = pcall(require, "JB_ASSUtils")
 local HAS_ASS = ok and type(ASS)=="table"
 
 AF_Select = AF_Select or {}
+require "ISUI/ISCoordConversion"
 
 -- One tile: choose the tile under the cursor immediately
 function AF_Select.pickSquare(worldObjects, p, cb)
@@ -15,9 +16,9 @@ function AF_Select.pickSquare(worldObjects, p, cb)
   -- Fallback: get the current mouse square right away
   local cell = getCell(); if not cell then cb(nil); return end
   local mx,my = getMouseXScaled(), getMouseYScaled()
+  local z = (p and p.getZ and p:getZ()) or 0
   local wx = ISCoordConversion.ToWorldX(mx,my,z)
   local wy = ISCoordConversion.ToWorldY(mx,my,z)
-  local z = (p and p.getZ and p:getZ()) or 0
   local sq = cell:getGridSquare(math.floor(wx), math.floor(wy), z)
   cb(sq)
 end
