@@ -1,30 +1,43 @@
--- AF_Worker.lua
-
+-- AF_Worker.lua — orchestrates chop → haul
 local okLog, AF_Log = pcall(require, "AF_Logger")
 if not okLog or type(AF_Log) ~= "table" then
     AF_Log = {
         info  = function(...) print("[AutoForester][I]", ...) end,
         warn  = function(...) print("[AutoForester][W]", ...) end,
-        error = function(...) print("[AutoForester][E]", ...) end
+        error = function(...) print("[AutoForester][E]", ...) end,
     }
 end
 
 local AF_Hauler  = require "AF_Hauler"
 local AF_Sweeper = require "AF_Sweeper"
 
-AF_Worker = {}
+local AF_Worker = {}
 
--- Choose a solid floor square inside the pile area (closest to player).
-local function choosePileSquare(area, p)
-    if not area then return nil end
-    local minX, minY, maxX, maxY = area.minX, area.minY, area.maxX, area.maxY
+-- robust queue size (B41 vs B42)
+local function queueSize(p)
+    if not p then return 0 end
+    local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
+    if not q then return 0 end
+    local list = q.actionQueue or q.queue
+    if not list then return 0 end
+    if list.size and type(list.size) == "function" then
+        return list:size()
+    end
+    local c = 0
+    if type(list) == "table" then for _ in pairs(list) do c = c + 1 end end
+    return c
+end
+
+-- choose a pile square inside the pile-area that actually has a floor
+local function choosePileSquare(pileArea, p)
+    if not pileArea then return nil end
+    local minX, minY, maxX, maxY = pileArea.minX, pileArea.minY, pileArea.maxX, pileArea.maxY
     if not (minX and minY and maxX and maxY) then return nil end
 
-    local world = getWorld()
-    local cell  = world and world:getCell()
+    local cell = getWorld() and getWorld():getCell()
     if not cell then return nil end
 
-    local z  = area.z or 0
+    local z = pileArea.z or 0
     local px, py = 0, 0
     if p and p.getX then px, py = p:getX(), p:getY() end
 
@@ -33,22 +46,21 @@ local function choosePileSquare(area, p)
         for x = minX, maxX do
             local sq = cell:getGridSquare(x, y, z)
             if sq and sq:getFloor() then
-                local dx, dy = (x + 0.5) - px, (y + 0.5) - py
+                local dx, dy = (x - px), (y - py)
                 local d2 = dx*dx + dy*dy
-                if d2 < bestD2 then
-                    bestD2, bestSq = d2, sq
-                end
+                if d2 < bestD2 then bestD2, bestSq = d2, sq end
             end
         end
     end
     return bestSq
 end
 
+-- any trees left in chop rect?
 local function rectHasTrees(rect, z)
     local cell = getWorld() and getWorld():getCell()
     if not cell then return false end
-    for x = rect[1], rect[3] do
-        for y = rect[2], rect[4] do
+    for y = rect[2], rect[4] do
+        for x = rect[1], rect[3] do
             local sq = cell:getGridSquare(x, y, z)
             if sq and sq:HasTree() then return true end
         end
@@ -56,166 +68,69 @@ local function rectHasTrees(rect, z)
     return false
 end
 
-local function rectHasLogs(rect, z)
-    local cell = getWorld() and getWorld():getCell()
-    if not cell then return false end
-    for x = rect[1], rect[3] do
-        for y = rect[2], rect[4] do
-            local sq = cell:getGridSquare(x, y, z)
-            if sq then
-                local wobs = sq:getWorldObjects()
-                for i = 0, (wobs and wobs:size() or 0) - 1 do
-                    local o = wobs:get(i)
-                    if instanceof(o, "IsoWorldInventoryObject") then
-                        local item = o:getItem()
-                        if item and item:getFullType() == "Base.Log" then
-                            return true
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
+-- enqueue chops for all trees in rect
 local function enqueueChop(rect, z, p)
     local cell = getWorld() and getWorld():getCell()
-    if not cell then return end
+    if not cell then return 0 end
     local count = 0
-    for x = rect[1], rect[3] do
-        for y = rect[2], rect[4] do
+    for y = rect[2], rect[4] do
+        for x = rect[1], rect[3] do
             local sq = cell:getGridSquare(x, y, z)
             if sq and sq:HasTree() then
                 local tree = sq:getTree()
                 if tree then
-                    ISWorldObjectContextMenu.doChopTree(p, tree) -- queues timed actions
+                    ISWorldObjectContextMenu.doChopTree(p, tree)
                     count = count + 1
                 end
             end
         end
     end
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
+    return count
 end
 
--- Return current timed-action queue length for player p without throwing.
--- Return the character's timed action count without throwing in B41/B42.
-
-local function queueSize(p)
-    if not p then return 0 end
-
-    local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q then return 0 end
-
-    -- B42 renamed the field to actionQueue; B41 used queue.
-    local list = q.actionQueue or q.queue
-    if not list then return 0 end
-
-    -- If it's a Java ArrayList (most builds), it exposes :size().
-    if list.size and type(list.size) == "function" then
-        -- Only call when the method exists; avoids error spam in logs.
-        return list:size()
-    end
-
-    -- Fallback for rare cases where it's a Lua table.
-    local c = 0
-    if type(list) == "table" then
-        for _ in pairs(list) do c = c + 1 end
-    end
-    return c
-end
-
-    -- preferred: Java ArrayList behind the queue
-    local qq = q.queue or (q.getQueue and q:getQueue()) or nil
-    if qq and qq.size then
-        local n = qq:size()
-        if type(n) == "number" then return n end
-    end
-
-    -- conservative fallback: if something is running, we know it's not empty
-    if q.getCurrentlyRunningAction and q:getCurrentlyRunningAction() then
-        return 1
-    end
-
-    return 0
-end
-
--- Public: start the job (chop → haul → sweep)
 function AF_Worker.start(p, chopArea, pileArea)
     if not p then return end
-    if not chopArea then
-        if p.Say then p:Say("AutoForester: no chop area set.") end
-        return
-    end
+    if not chopArea then if p.Say then p:Say("AutoForester: no chop area set.") end return end
 
-    local z    = chopArea.z or 0
-    local rect = { chopArea.minX, chopArea.minY, chopArea.maxX, chopArea.maxY }
-
-    -- Choose and set a valid pile square (guard against nil)
+    local z      = chopArea.z or 0
+    local rect   = { chopArea.minX, chopArea.minY, chopArea.maxX, chopArea.maxY }
     local pileSq = choosePileSquare(pileArea, p)
     if not pileSq then
         AF_Log.warn("choosePileSquare() returned nil; check pile area bounds/floor.")
-        if p and p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
+        if p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
         return
     end
 
-    -- Make sure the hauler module actually loaded
+    -- set the pile for the hauler
     if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
-        if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
         AF_Log.error("AF_Hauler not loaded; aborting start.")
+        if p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
         return
     end
-
     AF_Hauler.setWoodPileSquare(pileSq)
 
     -- Phase 1: chop
     enqueueChop(rect, z, p)
-
     local state = { phase = "chop" }
 
     local function onTick()
         if state.phase == "chop" then
             if rectHasTrees(rect, z) or queueSize(p) > 0 then return end
             state.phase = "haul"
-            AF_Log.info("AutoForester: Haul phase…")
+            AF_Log.info("AutoForester: Haul phase!")
             return
         end
 
         if state.phase == "haul" then
-            -- enqueue pickup only when queue is empty
+            -- only enqueue hauls when queue is empty (keeps batches small)
             if queueSize(p) == 0 then
                 local picked = AF_Hauler.enqueueBatch(p, rect, z, 20) -- up to 20 pickups
                 if picked == 0 then
-                    -- drop whatever we’re carrying and see if area is clear
+                    -- nothing more to pick up → if carrying, drop; otherwise done
                     AF_Hauler.dropBatchToPile(p, 200)
-                    local logsInInv = p:getInventory():getCountTypeRecurse("Base.Log")
-                    if not rectHasLogs(rect, z) and logsInInv == 0 and queueSize(p) == 0 then
-                        state.phase = "sweep"
-                        AF_Log.info("AutoForester: Sweep phase…")
-                    end
-                else
-                    -- after a pickup batch, also queue a drop batch
-                    AF_Hauler.dropBatchToPile(p, 200)
+                    state.phase = "done"
                 end
-            end
-            return
-        end
-
-        if state.phase == "sweep" then
-            if queueSize(p) == 0 then
-                local cell = getWorld():getCell()
-                local added = 0
-                for x = rect[1], rect[3] do
-                    for y = rect[2], rect[4] do
-                        local sq = cell:getGridSquare(x, y, z)
-                        if sq then
-                            local did = AF_Sweeper.trySweep(p, sq)
-                            if did then added = added + 1 end
-                        end
-                    end
-                end
-                AF_Log.info("AutoForester: Sweep actions queued ("..tostring(added)..")")
-                state.phase = "done"
             end
             return
         end
@@ -231,4 +146,5 @@ function AF_Worker.start(p, chopArea, pileArea)
     Events.OnTick.Add(onTick)
 end
 
+print("AutoForester: AF_Worker loaded")
 return AF_Worker
