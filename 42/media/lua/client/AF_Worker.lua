@@ -84,11 +84,40 @@ local function enqueueChop(rect, z, p)
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
 end
 
+-- Returns the number of timed actions for this player (works across builds).
 local function queueSize(p)
-    if not p then return 0 end
+    if not p or not ISTimedActionQueue or not ISTimedActionQueue.getTimedActionQueue then
+        return 0
+    end
+
+    -- Get the per-player queue object
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    return (q and q.queue and q.queue:size()) or 0
+    if not q then return 0 end
+
+    -- Different builds expose the list differently
+    local list =
+        q.queue or
+        (type(q.getQueue) == "function" and q:getQueue()) or
+        q.actions or
+        q.list or
+        nil
+
+    -- Java collection? use :size()
+    if list and list.size then
+        local ok, n = pcall(function() return list:size() end)
+        if ok and type(n) == "number" then return n end
+    end
+
+    -- Lua table? count entries (works even if not an array)
+    if type(list) == "table" then
+        local n = 0
+        for _ in pairs(list) do n = n + 1 end
+        return n
+    end
+
+    return 0
 end
+
 
 ---------------------------------------------------------------------------
 -- Public: start the job (chop → haul → sweep)
