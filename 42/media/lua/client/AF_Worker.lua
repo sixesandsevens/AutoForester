@@ -101,10 +101,32 @@ local function enqueueChop(rect, z, p)
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
 end
 
+-- Returns the size of the player's timed-action queue without ever calling a nil method.
 local function queueSize(p)
     if not p then return 0 end
+
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    return (q and q.queue and q.queue:size()) or 0
+    if not q then return 0 end
+
+    -- PZ usually exposes q.queue; sometimes there’s a getter.
+    local Q = q.queue or (type(q.getQueue) == "function" and q:getQueue()) or nil
+    if not Q then return 0 end
+
+    -- Prefer Java-style methods if present.
+    if type(Q.size) == "function" then
+        return Q:size()
+    elseif type(Q.getSize) == "function" then
+        return Q:getSize()
+    end
+
+    -- If it’s a plain Lua table, count entries.
+    if type(Q) == "table" then
+        local n = 0
+        for _ in pairs(Q) do n = n + 1 end
+        return n
+    end
+
+    return 0
 end
 
 ---------------------------------------------------------------------------
