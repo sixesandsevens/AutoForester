@@ -1,6 +1,11 @@
+-- 42/media/lua/client/AF_Run.lua
 AF = AF or {}
-AF.Run = AF.Run or {}
 
+-- Make both names point to the same table.
+AF_Run = AF_Run or {}
+AF.Run = AF_Run
+
+-- Logger (safe fallback)
 local okLog, AF_Log = pcall(require, "AF_Logger")
 if not okLog or type(AF_Log) ~= "table" then
     AF_Log = {
@@ -31,7 +36,7 @@ function AF_Run.start(playerObj)
     if not chop then p:Say("Set a Chop/Gather area first.") return end
     if not pile then p:Say("Set a Wood Pile area first.") return end
 
-    -- force a fresh load while developing (remove for release)
+    -- DEV: force a fresh load while iterating (remove for release)
     if package and package.loaded then
         package.loaded["AF_Worker"] = nil
         package.loaded["AF_Hauler"] = nil
@@ -51,4 +56,4 @@ function AF_Run.start(playerObj)
 end
 
 print("AutoForester: AF_Run loaded")
-return AF.Run
+return AF_Run

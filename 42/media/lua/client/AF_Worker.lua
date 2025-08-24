@@ -16,27 +16,34 @@ end
 
 local AF_Worker = {}
 
--- robust queue size (B41 vs B42) without throwing
+-- Returns the number of timed actions queued for this player,
+-- safely across B41/B42 and Java-backed queues.
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q or not q.queue then return 0 end
-    -- B42: q.queue is a Java ArrayList; :size() can error in the debugger
-    local ok, n = pcall(function() return q.queue:size() end)
+    if not q then return 0 end
+
+    -- Try the common cases without throwing.
+    local ok, n = pcall(function()
+        -- In B42, q.queue is often a Java ArrayList with :size()
+        if q.queue and q.queue.size then
+            return q.queue:size()
+        end
+        -- Some builds put size() directly on q
+        if q.size then
+            return q:size()
+        end
+        return 0
+    end)
     if ok and type(n) == "number" then return n end
+
+    -- Last-resort: count Lua table entries (dev fallback).
     local c = 0
-    for _ in pairs(q.queue) do c = c + 1 end
+    local t = (type(q.queue) == "table") and q.queue or ((type(q) == "table") and q or nil)
+    if t then for _ in pairs(t) do c = c + 1 end end
     return c
 end
 
-    -- Lua table fallback
-    if type(list) == "table" then
-        local c = 0
-        for _ in pairs(list) do c = c + 1 end
-        return c
-    end
-    return 0
-end
 
 -- choose a pile square inside the pile-area that actually has a floor
 local function choosePileSquare(pileArea, p)
@@ -102,6 +109,12 @@ end
 function AF_Worker.start(p, chopArea, pileArea)
     if not p then return end
     if not chopArea then if p.Say then p:Say("AutoForester: no chop area set.") end return end
+-- Make sure the hauler module actually loaded
+if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
+    if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
+    AF_Log.error("AF_Hauler not loaded; aborting start.")
+    return
+end
 
     local z      = chopArea.z or 0
     local rect   = { chopArea.minX, chopArea.minY, chopArea.maxX, chopArea.maxY }
