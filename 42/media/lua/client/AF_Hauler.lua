@@ -83,39 +83,37 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
     return enqueued
 end
 
--- Drop any logs currently carried onto the pile square.
--- Returns number of logs we tried to drop.
-function AF_Hauler.dropBatchToPile(playerObj, _maxWalk)
-    if not (pileSq and instanceof(pileSq, "IsoGridSquare")) then return 0 end
-    if not playerObj then return 0 end
+-- Drop up to `limit` logs from the player's inventory at the pile square.
+function AF_Hauler.dropBatchToPile(playerObj, limit)
+    if not pileSq or not playerObj then return 0 end
 
-    local inv   = playerObj:getInventory()
-    local items = inv and inv:getItems()
-    if not items or items:size() == 0 then return 0 end
+    local inv = playerObj:getInventory()
+    if not inv then return 0 end
+
+    -- Collect up to `limit` logs from the *root* inventory (safe across B42).
+    local items = inv:getItems()
+    if not items then return 0 end
 
     local toDrop = {}
+    local maxDrop = math.min(limit or 200, items:size())
     for i = 0, items:size() - 1 do
         local it = items:get(i)
         if it and it.getFullType and it:getFullType() == "Base.Log" then
-            toDrop[#toDrop+1] = it
+            toDrop[#toDrop + 1] = it
+            if #toDrop >= maxDrop then break end
         end
     end
     if #toDrop == 0 then return 0 end
 
+    -- Walk to the pile first, then drop at feet (which will be on the pile).
     ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, pileSq))
 
-    -- Robust drop: use timed drop if available; otherwise instant-drop as a fallback.
-    for i = 1, #toDrop do
-        local it = toDrop[i]
-        if ISDropWorldItemAction and ISDropWorldItemAction.new then
-            ISTimedActionQueue.add(ISDropWorldItemAction:new(
-                playerObj, it, pileSq:getX(), pileSq:getY(), pileSq:getZ()))
-        else
-            ISInventoryPaneContextMenu.dropItem(it, playerObj:getPlayerNum())
-        end
+    for _, it in ipairs(toDrop) do
+        -- vanilla action; drops on the square the player is standing on
+        ISTimedActionQueue.add(ISDropItemAction:new(playerObj, it, 0))
     end
 
-    AF_Log.info("AutoForester: dropped "..tostring(#toDrop).." logs to pile")
+    AF_Log.info("AutoForester: queued " .. tostring(#toDrop) .. " drop(s) to pile.")
     return #toDrop
 end
 
