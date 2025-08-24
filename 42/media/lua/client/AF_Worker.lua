@@ -101,8 +101,13 @@ end
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    return (q and q.queue and q.queue:size()) or 0
+    if q and q.queue then
+        return q.queue:size()
+    else
+        return 0
+    end
 end
+
 
 -- Public: start the job (chop → haul → sweep)
 function AF_Worker.start(p, chopArea, pileArea)
