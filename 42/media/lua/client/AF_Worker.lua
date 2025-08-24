@@ -1,4 +1,8 @@
--- AF_Worker.lua — orchestrates chop → haul
+-- AutoForester - Worker: chops, then sweeps logs one-by-one and drops at pile
+
+AF_Worker = AF_Worker or {}
+
+-- --- logging ---------------------------------------------------------------
 local okLog, AF_Log = pcall(require, "AF_Logger")
 if not okLog or type(AF_Log) ~= "table" then
     AF_Log = {
@@ -8,165 +12,158 @@ if not okLog or type(AF_Log) ~= "table" then
     }
 end
 
-local okHauler, AF_Hauler = pcall(require, "AF_Hauler")
-if not okHauler or type(AF_Hauler) ~= "table" then
-    AF_Log.warn("AF_Hauler missing or invalid; will bail on start.")
-    AF_Hauler = nil
-end
+-- --- helpers ---------------------------------------------------------------
 
-local AF_Worker = {}
-
--- Returns the number of timed actions queued for this player,
--- safely across B41/B42 and Java-backed queues.
+-- Count the player's timed actions safely (works for Lua tables or Java lists)
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
     if not q then return 0 end
+    local qq = q.queue
 
-    -- Try the common cases without throwing.
-    local ok, n = pcall(function()
-        -- In B42, q.queue is often a Java ArrayList with :size()
-        if q.queue and q.queue.size then
-            return q.queue:size()
-        end
-        -- Some builds put size() directly on q
-        if q.size then
-            return q:size()
-        end
-        return 0
-    end)
+    -- Prefer treating it like a Lua table
+    if type(qq) == "table" then
+        local n = 0
+        for _ in pairs(qq) do n = n + 1 end
+        return n
+    end
+
+    -- Last resort: call Java .size() only if present
+    local ok, n = pcall(function() return qq and qq.size and qq:size() end)
     if ok and type(n) == "number" then return n end
-
-    -- Last-resort: count Lua table entries (dev fallback).
-    local c = 0
-    local t = (type(q.queue) == "table") and q.queue or ((type(q) == "table") and q or nil)
-    if t then for _ in pairs(t) do c = c + 1 end end
-    return c
+    return 0
 end
 
+-- Simple weight gate: do we have room for (about) one more log?
+local function canCarryOneMoreLog(p)
+    if not p then return false end
+    local inv = p:getInventory()
+    if not inv then return false end
+    local cap = p:getMaxWeight()
+    local cur = inv:getCapacityWeight()
+    -- Logs are heavy; reserve ~4 units. Tweak to taste.
+    return (cap - cur) >= 4.0
+end
 
--- choose a pile square inside the pile-area that actually has a floor
+-- Pick a valid floor square inside the pile area (very forgiving).
 local function choosePileSquare(pileArea, p)
     if not pileArea then return nil end
-    local minX, minY, maxX, maxY = pileArea.minX, pileArea.minY, pileArea.maxX, pileArea.maxY
-    if not (minX and minY and maxX and maxY) then return nil end
-
-    local cell = getWorld() and getWorld():getCell()
-    if not cell then return nil end
-
-    local z = pileArea.z or 0
-    local px, py = 0, 0
-    if p and p.getX then px, py = p:getX(), p:getY() end
-
-    local bestSq, bestD2 = nil, math.huge
-    for y = minY, maxY do
-        for x = minX, maxX do
+    local cell = getCell()
+    local z    = pileArea.z or 0
+    for y = pileArea.miny, pileArea.maxy do
+        for x = pileArea.minx, pileArea.maxx do
             local sq = cell:getGridSquare(x, y, z)
             if sq and sq:getFloor() then
-                local dx, dy = (x - px), (y - py)
-                local d2 = dx*dx + dy*dy
-                if d2 < bestD2 then bestD2, bestSq = d2, sq end
+                return sq
             end
         end
     end
-    return bestSq
+    return nil
 end
 
--- any trees left in chop rect?
-local function rectHasTrees(rect, z)
-    local cell = getWorld() and getWorld():getCell()
-    if not cell then return false end
-    for y = rect[2], rect[4] do
-        for x = rect[1], rect[3] do
-            local sq = cell:getGridSquare(x, y, z)
-            if sq and sq:HasTree() then return true end
-        end
-    end
-    return false
-end
-
--- enqueue chops for all trees in rect
+-- Enqueue chop actions for every tree in the rectangle
 local function enqueueChop(rect, z, p)
-    local cell = getWorld() and getWorld():getCell()
-    if not cell then return 0 end
     local count = 0
-    for y = rect[2], rect[4] do
-        for x = rect[1], rect[3] do
+    local cell  = getCell()
+    z = rect.z or z or 0
+    for y = rect.miny, rect.maxy do
+        for x = rect.minx, rect.maxx do
             local sq = cell:getGridSquare(x, y, z)
             if sq and sq:HasTree() then
                 local tree = sq:getTree()
                 if tree then
+                    -- queues vanilla chop timed action
                     ISWorldObjectContextMenu.doChopTree(p, tree)
                     count = count + 1
                 end
             end
         end
     end
-    AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
-    return count
+    AF_Log.info("AutoForester: Chop actions queued (" .. tostring(count) .. ").")
 end
 
-function AF_Worker.start(p, chopArea, pileArea)
+-- --- public tick -----------------------------------------------------------
+
+function AF_Worker.onTick()
+    local p = getSpecificPlayer(0) or getPlayer()
     if not p then return end
-    if not chopArea then if p.Say then p:Say("AutoForester: no chop area set.") end return end
--- Make sure the hauler module actually loaded
-if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
-    if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
-    AF_Log.error("AF_Hauler not loaded; aborting start.")
-    return
-end
+    local st = AF_Worker.state
+    if not st then return end
 
-    local z      = chopArea.z or 0
-    local rect   = { chopArea.minX, chopArea.minY, chopArea.maxX, chopArea.maxY }
-    local pileSq = choosePileSquare(pileArea, p)
-    if not pileSq then
-        AF_Log.warn("choosePileSquare() returned nil; check pile area bounds/floor.")
-        if p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
+    if st.phase == "chop" then
+        -- Wait for all chop actions to drain, then enter sweep
+        if queueSize(p) == 0 then
+            st.phase = "sweep"
+            st.sweepCursor = { x = st.rect.minx, y = st.rect.miny }
+            AF_Log.info("AutoForester: entering sweep")
+        end
         return
     end
 
-    if not AF_Hauler or type(AF_Hauler.setWoodPileSquare) ~= "function" then
-        AF_Log.error("AF_Hauler not loaded; aborting start.")
-        if p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
+    if st.phase == "sweep" then
+        -- If anything is still running, let it finish
+        if queueSize(p) > 0 then return end
+
+        -- Too heavy? Go drop at pile first.
+        if not canCarryOneMoreLog(p) then
+            AF_Hauler.dropBatchToPile(p, 200)   -- queues walk + drops
+            return
+        end
+
+        -- Find the next single log to pick up
+        local sq, wob = AF_Hauler.findNextLog(st)
+        if not sq then
+            -- No more logs here -> do a final drop and finish
+            AF_Hauler.dropBatchToPile(p, 200)
+            st.phase = "finish"
+            return
+        end
+
+        -- Queue exactly ONE grab (walk + grab)
+        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, sq))
+        ISTimedActionQueue.add(ISGrabItemAction:new(p, wob, 50))
+        return
+    end
+
+    if st.phase == "finish" then
+        if queueSize(p) == 0 then
+            AF_Log.info("AutoForester: done.")
+            AF_Worker.state = nil
+            Events.OnPlayerUpdate.Remove(AF_Worker.onTick)
+        end
+        return
+    end
+end
+
+-- --- public start ----------------------------------------------------------
+
+function AF_Worker.start(p, chopArea, pileArea)
+    if not p or not chopArea or not pileArea then return end
+
+    local rect = {
+        minx = chopArea.minx, miny = chopArea.miny,
+        maxx = chopArea.maxx, maxy = chopArea.maxy,
+        z    = chopArea.z or 0
+    }
+
+    -- Choose a valid pile square and pass to the hauler
+    local pileSq = choosePileSquare(pileArea, p)
+    if not pileSq then
+        AF_Log.warn("choosePileSquare() failed; pile area has no valid floor.")
+        if p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
         return
     end
     AF_Hauler.setWoodPileSquare(pileSq)
 
     -- Phase 1: chop
-    enqueueChop(rect, z, p)
-    local state = { phase = "chop" }
+    enqueueChop(rect, rect.z, p)
 
-    local function onTick()
-        if state.phase == "chop" then
-            if rectHasTrees(rect, z) or queueSize(p) > 0 then return end
-            state.phase = "haul"
-            AF_Log.info("AutoForester: Haul phase!")
-            return
-        end
+    -- Save state and subscribe tick
+    AF_Worker.state = { phase = "chop", rect = rect }
+    Events.OnPlayerUpdate.Remove(AF_Worker.onTick)
+    Events.OnPlayerUpdate.Add(AF_Worker.onTick)
 
-        if state.phase == "haul" then
-            -- enqueue small batches only when queue is empty
-            if queueSize(p) == 0 then
-                local picked = AF_Hauler.enqueueBatch(p, rect, z, 20) -- up to 20 pickups
-                if picked == 0 then
-                    -- nothing more to pick up → if carrying, drop; otherwise done
-                    AF_Hauler.dropBatchToPile(p, 200)
-                    state.phase = "done"
-                end
-            end
-            return
-        end
-
-        if state.phase == "done" and queueSize(p) == 0 then
-            Events.OnTick.Remove(onTick)
-            if p.Say then p:Say("AutoForester: done.") end
-            AF_Log.info("AutoForester: done.")
-        end
-    end
-
-    Events.OnTick.Remove(onTick)
-    Events.OnTick.Add(onTick)
+    AF_Log.info("AutoForester: Worker started.")
 end
 
-print("AutoForester: AF_Worker loaded")
 return AF_Worker
