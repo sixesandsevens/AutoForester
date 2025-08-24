@@ -36,13 +36,21 @@ local function invNearlyFull(p)
     return cur >= (max - 2) -- keep ~2 units headroom
 end
 
--- Queue up to maxCount log pickups found in rect/z.
--- Returns number of pickups queued.
-function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
-    local cell     = getWorld() and getWorld():getCell()
-    if not (cell and playerObj) then return 0 end
-    local toQueue  = maxCount or 20
+-- Scan rect for log world-objects and enqueue walk+grab actions.
+-- Returns how many pickups we enqueued (capped by maxPickups).
+function AF_Hauler.enqueueBatch(playerObj, rect, z, maxPickups)
+    if not playerObj then return 0 end
+    local cell = getCell()
+    if not cell then return 0 end
+
+    local toQueue  = math.max(1, maxPickups or 12)
     local enqueued = 0
+
+    -- simple weight gate so we don't over-enqueue when nearly full
+    local function invNearlyFull()
+        local inv = playerObj:getInventory()
+        return inv and (inv:getCapacityWeight() >= playerObj:getMaxWeight() * 0.9)
+    end
 
     for y = rect[2], rect[4] do
         for x = rect[1], rect[3] do
@@ -51,7 +59,7 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
                 return enqueued
             end
 
-            if invNearlyFull(playerObj) then
+            if invNearlyFull() then
                 AF_Log.info("AutoForester: inventory almost full while enqueueing haul; stopping batch.")
                 AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
                 return enqueued
@@ -60,18 +68,20 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
             local sq = cell:getGridSquare(x, y, z)
             if sq then
                 local wobs = sq:getWorldObjects()
-                local n = (wobs and wobs:size() or 0)
+                local n = (wobs and wobs:size()) or 0
                 for i = 0, n - 1 do
                     local w = wobs:get(i)
-                    if isLogWorldObj(w) then
-                        -- walk to the square then grab the world item
-                        ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, sq))
-                        local item = w:getItem()
-                        ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, item, 50))
-                        enqueued = enqueued + 1
-                        if enqueued >= toQueue then
-                            AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
-                            return enqueued
+                    -- we must pass the WORLD OBJECT to ISGrabItemAction (not w:getItem())
+                    if w and instanceof(w, "IsoWorldInventoryObject") then
+                        local it = w:getItem()
+                        if it and it.getFullType and it:getFullType() == "Base.Log" then
+                            ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, sq))
+                            ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, w, 50))  -- <-- key change
+                            enqueued = enqueued + 1
+                            if enqueued >= toQueue then
+                                AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
+                                return enqueued
+                            end
                         end
                     end
                 end
@@ -82,6 +92,7 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
     AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
     return enqueued
 end
+
 
 -- Drop up to `limit` logs from the player's inventory at the pile square.
 function AF_Hauler.dropBatchToPile(playerObj, limit)
