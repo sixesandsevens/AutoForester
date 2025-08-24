@@ -1,70 +1,73 @@
--- 42/media/lua/client/AF_Hauler.lua
 local okLog, AF_Log = pcall(require, "AF_Logger")
 if not okLog or type(AF_Log) ~= "table" then
     AF_Log = {
         info  = function(...) print("[AutoForester][I]", ...) end,
         warn  = function(...) print("[AutoForester][W]", ...) end,
-        error = function(...) print("[AutoForester][E]", ...) end,
+        error = function(...) print("[AutoForester][E]", ...) end
     }
 end
 
 AF_Hauler = {}
 
--- Destination square for dropping logs.
-local pileSq = nil
+local pileSq -- IsoGridSquare where we drop logs
 
 function AF_Hauler.setWoodPileSquare(sq)
     if sq and instanceof(sq, "IsoGridSquare") then
         pileSq = sq
-        local sx, sy, sz = sq:getX(), sq:getY(), sq:getZ()
-        AF_Log.info(string.format("AutoForester: wood pile set to (%d,%d,%d)", sx, sy, sz))
+        AF_Log.info(string.format("AutoForester: wood pile set at (%d,%d,%d)",
+                         sq:getX(), sq:getY(), sq:getZ()))
     else
-        AF_Log.warn("AutoForester: setWoodPileSquare called with invalid sq; clearing.")
         pileSq = nil
+        AF_Log.warn("AutoForester: wood pile square cleared (invalid square)")
     end
 end
 
-local function isWorldLog(wobj)
-    if not wobj or not instanceof(wobj, "IsoWorldInventoryObject") then return false end
+local function isLogWorldObj(wobj)
+    if not (wobj and instanceof(wobj, "IsoWorldInventoryObject")) then return false end
     local it = wobj:getItem()
     return it and it.getFullType and it:getFullType() == "Base.Log"
 end
 
--- Scan rect for log world-objects and enqueue walk+grab actions.
--- Returns how many pickups we enqueued (capped by maxPickups).
-function AF_Hauler.enqueueBatch(playerObj, rect, z, maxPickups)
-    if not playerObj then return 0 end
-    local cell = getCell()
-    if not cell then return 0 end
+local function invNearlyFull(p)
+    local inv = p and p:getInventory()
+    if not inv then return false end
+    local cur = inv:getCapacityWeight()
+    local max = inv:getMaxWeight()
+    return cur >= (max - 2) -- keep ~2 units headroom
+end
 
-    local toQueue  = math.max(1, maxPickups or 12)
+-- Queue up to maxCount log pickups found in rect/z.
+-- Returns number of pickups queued.
+function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
+    local cell     = getWorld() and getWorld():getCell()
+    if not (cell and playerObj) then return 0 end
+    local toQueue  = maxCount or 20
     local enqueued = 0
 
     for y = rect[2], rect[4] do
         for x = rect[1], rect[3] do
             if enqueued >= toQueue then
-                AF_Log.info("AutoForester: Haul actions queued (" .. tostring(enqueued) .. ")")
+                AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
+                return enqueued
+            end
+
+            if invNearlyFull(playerObj) then
+                AF_Log.info("AutoForester: inventory almost full while enqueueing haul; stopping batch.")
+                AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
                 return enqueued
             end
 
             local sq = cell:getGridSquare(x, y, z)
             if sq then
-                -- If we’re close to full, stop adding more pickups.
-                local inv = playerObj:getInventory()
-                if inv and (inv:getCapacityWeight() >= playerObj:getMaxWeight() * 0.9) then
-                    AF_Log.info("AutoForester: inventory almost full while enqueueing haul; stopping batch.")
-                    AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
-                    return enqueued
-                end
-
                 local wobs = sq:getWorldObjects()
-                local n = (wobs and wobs:size()) or 0
+                local n = (wobs and wobs:size() or 0)
                 for i = 0, n - 1 do
                     local w = wobs:get(i)
-                    if isWorldLog(w) then
-                        -- IMPORTANT: pass the IsoWorldInventoryObject to ISGrabItemAction.
+                    if isLogWorldObj(w) then
+                        -- walk to the square then grab the world item
                         ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, sq))
-                        ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, w, 50))
+                        local item = w:getItem()
+                        ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, item, 50))
                         enqueued = enqueued + 1
                         if enqueued >= toQueue then
                             AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
@@ -84,12 +87,12 @@ end
 -- Returns number of logs we tried to drop.
 function AF_Hauler.dropBatchToPile(playerObj, _maxWalk)
     if not (pileSq and instanceof(pileSq, "IsoGridSquare")) then return 0 end
+    if not playerObj then return 0 end
 
     local inv   = playerObj:getInventory()
     local items = inv and inv:getItems()
     if not items or items:size() == 0 then return 0 end
 
-    -- collect logs from top-level inventory (ISGrabItemAction puts logs here)
     local toDrop = {}
     for i = 0, items:size() - 1 do
         local it = items:get(i)
@@ -99,13 +102,21 @@ function AF_Hauler.dropBatchToPile(playerObj, _maxWalk)
     end
     if #toDrop == 0 then return 0 end
 
-    -- walk to the pile and drop them
     ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, pileSq))
+
+    -- Robust drop: use timed drop if available; otherwise instant-drop as a fallback.
     for i = 1, #toDrop do
         local it = toDrop[i]
-        ISTimedActionQueue.add(ISDropWorldItemAction:new(
-            playerObj, it, pileSq:getX(), pileSq:getY(), pileSq:getZ()))
+        if ISDropWorldItemAction and ISDropWorldItemAction.new then
+            ISTimedActionQueue.add(ISDropWorldItemAction:new(
+                playerObj, it, pileSq:getX(), pileSq:getY(), pileSq:getZ()))
+        else
+            ISInventoryPaneContextMenu.dropItem(it, playerObj:getPlayerNum())
+        end
     end
-    AF_Log.info("AutoForester: dropped " .. tostring(#toDrop) .. " logs to pile")
+
+    AF_Log.info("AutoForester: dropped "..tostring(#toDrop).." logs to pile")
     return #toDrop
 end
+
+return AF_Hauler

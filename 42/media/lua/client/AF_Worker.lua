@@ -1,51 +1,14 @@
--- AF_Worker.lua (fixed: define choosePileSquare before use + nil guards)
-
 local okLog, AF_Log = pcall(require, "AF_Logger")
 if not okLog or type(AF_Log) ~= "table" then
-    AF_Log = {
-        info  = function(...) print("[AutoForester][I]", ...) end,
-        warn  = function(...) print("[AutoForester][W]", ...) end,
-        error = function(...) print("[AutoForester][E]", ...) end
-    }
+    AF_Log = { info=function(...) print("[AutoForester][I]", ...) end,
+               warn=function(...) print("[AutoForester][W]", ...) end,
+               error=function(...) print("[AutoForester][E]", ...) end }
 end
 
-local AF_Hauler  = require "AF_Hauler"
+local AF_Hauler  = require "AF_Hauler"   -- ensure hauler is loaded
 local AF_Sweeper = require "AF_Sweeper"
 
 AF_Worker = {}
-
----------------------------------------------------------------------------
--- Choose a solid floor square inside the pile area (closest to player).
--- Safe against missing fields and missing cell/floor.
----------------------------------------------------------------------------
-local function choosePileSquare(area, p)
-    if not area then return nil end
-    local minX, minY, maxX, maxY = area.minX, area.minY, area.maxX, area.maxY
-    if not (minX and minY and maxX and maxY) then return nil end
-
-    local world = getWorld()
-    local cell  = world and world:getCell()
-    if not cell then return nil end
-
-    local z  = area.z or 0
-    local px, py = 0, 0
-    if p and p.getX then px, py = p:getX(), p:getY() end
-
-    local bestSq, bestD2 = nil, math.huge
-    for y = minY, maxY do
-        for x = minX, maxX do
-            local sq = cell:getGridSquare(x, y, z)
-            if sq and sq:getFloor() then
-                local dx, dy = (x + 0.5) - px, (y + 0.5) - py
-                local d2 = dx*dx + dy*dy
-                if d2 < bestD2 then
-                    bestD2, bestSq = d2, sq
-                end
-            end
-        end
-    end
-    return bestSq
-end
 
 local function rectHasTrees(rect, z)
     local cell = getWorld() and getWorld():getCell()
@@ -82,6 +45,26 @@ local function rectHasLogs(rect, z)
     return false
 end
 
+local function choosePileSquare(area, p)
+    if not area then return nil end
+    local cell = getWorld() and getWorld():getCell()
+    if not cell then return nil end
+    local z    = area.z or 0
+    -- Prefer any floor tile inside the area (esp. if z>0)
+    for y = area.minY, area.maxY do
+        for x = area.minX, area.maxX do
+            local sq = cell:getGridSquare(x, y, z)
+            if sq and (z == 0 or sq:getFloor()) then
+                return sq
+            end
+        end
+    end
+    -- Fallback to center
+    local cx = math.floor((area.minX + area.maxX) / 2)
+    local cy = math.floor((area.minY + area.maxY) / 2)
+    return cell:getGridSquare(cx, cy, z)
+end
+
 local function enqueueChop(rect, z, p)
     local cell = getWorld() and getWorld():getCell()
     if not cell then return end
@@ -101,32 +84,10 @@ local function enqueueChop(rect, z, p)
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
 end
 
--- Returns the size of the player's timed-action queue without ever calling a nil method.
 local function queueSize(p)
     if not p then return 0 end
-
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q then return 0 end
-
-    -- PZ usually exposes q.queue; sometimes there’s a getter.
-    local Q = q.queue or (type(q.getQueue) == "function" and q:getQueue()) or nil
-    if not Q then return 0 end
-
-    -- Prefer Java-style methods if present.
-    if type(Q.size) == "function" then
-        return Q:size()
-    elseif type(Q.getSize) == "function" then
-        return Q:getSize()
-    end
-
-    -- If it’s a plain Lua table, count entries.
-    if type(Q) == "table" then
-        local n = 0
-        for _ in pairs(Q) do n = n + 1 end
-        return n
-    end
-
-    return 0
+    return (q and q.queue and q.queue:size()) or 0
 end
 
 ---------------------------------------------------------------------------
@@ -150,15 +111,14 @@ function AF_Worker.start(p, chopArea, pileArea)
         return
     end
 
--- Make sure the hauler module actually loaded
+    -- Make sure the hauler module actually loaded
     if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
         if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
         AF_Log.error("AF_Hauler not loaded; aborting start.")
         return
     end
 
-AF_Hauler.setWoodPileSquare(pileSq)
-
+    AF_Hauler.setWoodPileSquare(pileSq)
 
     -- Phase 1: chop
     enqueueChop(rect, z, p)
