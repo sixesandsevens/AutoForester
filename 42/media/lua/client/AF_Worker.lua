@@ -101,13 +101,18 @@ end
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if q and q.queue then
-        return q.queue:size()
-    else
+    if not q or not q.queue then
         return 0
     end
+    -- q.queue is usually a Java ArrayList; fall back to counting if it isn't.
+    local ok, n = pcall(function() return q.queue:size() end)
+    if ok and type(n) == "number" then
+        return n
+    end
+    local c = 0
+    for _ in pairs(q.queue) do c = c + 1 end
+    return c
 end
-
 
 -- Public: start the job (chop → haul → sweep)
 function AF_Worker.start(p, chopArea, pileArea)
