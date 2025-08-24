@@ -1,6 +1,8 @@
 AF = AF or {}
 require "AF_Areas"
 require "AF_SelectAdapter"
+local AF_Run = require "AF_Run"
+
 
 local function AF_ContextMenu(playerIndex, context, worldObjects, test)
     if test then
