@@ -1,59 +1,54 @@
--- AutoForester / AF_Run.lua  (B42-safe)
--- Minimal runner that validates dependencies and starts the Worker.
+-- media/lua/client/AF_Run.lua
 
--- Always export a table from this module
-local AF_Run = {}
+-- Keep a global namespace but don't depend on it.
+AF = AF or {}
 
--- ----------------------------------------------------------------------
--- Logging (safe fallback if AF_Logger isn't available)
-local okLog, AF_Log = pcall(require, "AF_Logger")
-if not okLog or type(AF_Log) ~= "table" then
-    AF_Log = {
-        info  = function(...) print("[AutoForester][I]", ...) end,
-        warn  = function(...) print("[AutoForester][W]", ...) end,
-        error = function(...) print("[AutoForester][E]", ...) end,
-    }
+-- --- logger (soft-require) ---------------------------------------------------
+local AF_Log
+do
+    local ok, mod = pcall(require, "AF_Logger")
+    if ok and type(mod) == "table" then
+        AF_Log = mod
+    else
+        -- tiny fallback so we still see messages in console
+        AF_Log = {
+            info  = function(...) print("[AutoForester][I]", ...) end,
+            warn  = function(...) print("[AutoForester][W]", ...) end,
+            error = function(...) print("[AutoForester][E]", ...) end,
+        }
+    end
 end
 
--- Worker (load defensively so AF_Run still loads even if Worker has an error)
+-- --- worker (hard-require) ---------------------------------------------------
 local okWorker, AF_Worker = pcall(require, "AF_Worker")
-if not okWorker or type(AF_Worker) ~= "table" then
-    AF_Log.error("AF_Worker failed to load: " .. tostring(AF_Worker))
-    -- Keep module alive so context menu can show a friendly message.
-    function AF_Run.start(playerObj)
-        local p = playerObj or getSpecificPlayer(0) or getPlayer()
-        if p and p.Say then p:Say("AutoForester: worker not loaded (see console).") end
-    end
+if not okWorker or type(AF_Worker) ~= "table" or type(AF_Worker.start) ~= "function" then
+    AF_Log.error("AF_Worker not loaded (see console).")
+    -- still return a module so require(...) is not nil
+    local AF_Run = { start = function() end }
     print("AutoForester: AF_Run loaded (worker missing)")
     return AF_Run
 end
 
--- ----------------------------------------------------------------------
--- Helper: fetch saved areas
+-- --- helpers -----------------------------------------------------------------
 local function getAreas()
     local md = ModData.getOrCreate("AutoForester")
     local a  = (md and md.areas) or {}
     return a.chop, a.pile
 end
 
--- ----------------------------------------------------------------------
--- Public: entrypoint from the context menu
+-- --- public API --------------------------------------------------------------
+local AF_Run = {}
+
 function AF_Run.start(playerObj)
     local p = playerObj or getSpecificPlayer(0) or getPlayer()
     if not p then return end
 
-    local chopArea, pileArea = getAreas()
-    if not chopArea then
-        if p.Say then p:Say("AutoForester: set a Chop/Gather area first.") end
-        return
-    end
-    if not pileArea then
-        if p.Say then p:Say("AutoForester: set a Wood Pile area first.") end
-        return
-    end
+    local chop, pile = getAreas()
+    if not chop then if p.Say then p:Say("Set a Chop/Gather area first.") end; return end
+    if not pile then if p.Say then p:Say("Set a Wood Pile area first.") end;   return end
 
-    AF_Log.info("AutoForester starting…")
-    AF_Worker.start(p, chopArea, pileArea)
+    AF_Log.info("AutoForester starting")
+    AF_Worker.start(p, chop, pile)
 end
 
 print("AutoForester: AF_Run loaded")
