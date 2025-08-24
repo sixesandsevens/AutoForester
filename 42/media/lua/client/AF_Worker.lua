@@ -5,7 +5,7 @@ if not okLog or type(AF_Log) ~= "table" then
                error=function(...) print("[AutoForester][E]", ...) end }
 end
 
-local AF_Hauler  = require "AF_Hauler"   -- ensure hauler is loaded
+local AF_Hauler  = require "AF_Hauler"
 local AF_Sweeper = require "AF_Sweeper"
 
 AF_Worker = {}
@@ -30,11 +30,12 @@ local function rectHasLogs(rect, z)
             local sq = cell:getGridSquare(x, y, z)
             if sq then
                 local wobs = sq:getWorldObjects()
-                for i = 0, (wobs and wobs:size() or 0) - 1 do
-                    local o = wobs:get(i)
-                    if instanceof(o, "IsoWorldInventoryObject") then
-                        local item = o:getItem()
-                        if item and item:getFullType() == "Base.Log" then
+                local n = (wobs and wobs:size()) or 0
+                for i = 0, n - 1 do
+                    local w = wobs:get(i)
+                    if instanceof(w, "IsoWorldInventoryObject") then
+                        local item = w:getItem()
+                        if item and item.getFullType and item:getFullType() == "Base.Log" then
                             return true
                         end
                     end
@@ -49,8 +50,9 @@ local function choosePileSquare(area, p)
     if not area then return nil end
     local cell = getWorld() and getWorld():getCell()
     if not cell then return nil end
-    local z    = area.z or 0
-    -- Prefer any floor tile inside the area (esp. if z>0)
+    local z = area.z or 0
+
+    -- Prefer any valid floor tile in the area (esp. for z>0)
     for y = area.minY, area.maxY do
         for x = area.minX, area.maxX do
             local sq = cell:getGridSquare(x, y, z)
@@ -59,7 +61,7 @@ local function choosePileSquare(area, p)
             end
         end
     end
-    -- Fallback to center
+    -- Fallback center
     local cx = math.floor((area.minX + area.maxX) / 2)
     local cy = math.floor((area.minY + area.maxY) / 2)
     return cell:getGridSquare(cx, cy, z)
@@ -75,7 +77,7 @@ local function enqueueChop(rect, z, p)
             if sq and sq:HasTree() then
                 local tree = sq:getTree()
                 if tree then
-                    ISWorldObjectContextMenu.doChopTree(p, tree) -- queues timed actions
+                    ISWorldObjectContextMenu.doChopTree(p, tree)
                     count = count + 1
                 end
             end
@@ -84,69 +86,47 @@ local function enqueueChop(rect, z, p)
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
 end
 
--- Returns the number of timed actions for this player (works across builds).
+-- Safe across builds (queue is sometimes a Java list, sometimes a Lua table)
 local function queueSize(p)
     if not p or not ISTimedActionQueue or not ISTimedActionQueue.getTimedActionQueue then
         return 0
     end
-
-    -- Get the per-player queue object
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
     if not q then return 0 end
 
-    -- Different builds expose the list differently
-    local list =
-        q.queue or
-        (type(q.getQueue) == "function" and q:getQueue()) or
-        q.actions or
-        q.list or
-        nil
-
-    -- Java collection? use :size()
+    local list = q.queue or (type(q.getQueue) == "function" and q:getQueue()) or q.actions or q.list or q
     if list and list.size then
         local ok, n = pcall(function() return list:size() end)
         if ok and type(n) == "number" then return n end
     end
-
-    -- Lua table? count entries (works even if not an array)
     if type(list) == "table" then
-        local n = 0
-        for _ in pairs(list) do n = n + 1 end
-        return n
+        local n = 0; for _ in pairs(list) do n = n + 1 end; return n
     end
-
     return 0
 end
-
 
 ---------------------------------------------------------------------------
 -- Public: start the job (chop → haul → sweep)
 ---------------------------------------------------------------------------
 function AF_Worker.start(p, chopArea, pileArea)
     if not p then return end
-    if not chopArea then
-        if p.Say then p:Say("AutoForester: no chop area set.") end
-        return
-    end
+    if not chopArea then if p.Say then p:Say("AutoForester: no chop area set.") end; return end
 
     local z    = chopArea.z or 0
     local rect = { chopArea.minX, chopArea.minY, chopArea.maxX, chopArea.maxY }
 
-    -- Choose and set a valid pile square (guard against nil)
+    -- Choose pile square and hand it to the hauler
     local pileSq = choosePileSquare(pileArea, p)
     if not pileSq then
         AF_Log.warn("choosePileSquare() returned nil; check pile area bounds/floor.")
-        if p and p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
+        if p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
         return
     end
-
-    -- Make sure the hauler module actually loaded
     if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
-        if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
+        if p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
         AF_Log.error("AF_Hauler not loaded; aborting start.")
         return
     end
-
     AF_Hauler.setWoodPileSquare(pileSq)
 
     -- Phase 1: chop
@@ -163,19 +143,19 @@ function AF_Worker.start(p, chopArea, pileArea)
         end
 
         if state.phase == "haul" then
-            -- enqueue in small batches only when queue is empty
             if queueSize(p) == 0 then
-                local picked = AF_Hauler.enqueueBatch(p, rect, z, 20) -- up to 20 pickups
+                local picked = AF_Hauler.enqueueBatch(p, rect, z, 20)
                 if picked == 0 then
-                    -- drop whatever we’re carrying and see if area is clear
+                    -- No more to pick up; dump what we carry and decide next
                     AF_Hauler.dropBatchToPile(p, 200)
-                    local logsInInv = p:getInventory():getCountTypeRecurse("Base.Log")
+                    local inv = p:getInventory()
+                    local logsInInv = inv and inv:getCountTypeRecurse and inv:getCountTypeRecurse("Base.Log") or 0
                     if not rectHasLogs(rect, z) and logsInInv == 0 and queueSize(p) == 0 then
                         state.phase = "sweep"
                         AF_Log.info("AutoForester: Sweep phase…")
                     end
                 else
-                    -- after a pickup batch, also queue a drop batch
+                    -- After each pickup batch, also enqueue a drop batch
                     AF_Hauler.dropBatchToPile(p, 200)
                 end
             end
