@@ -20,13 +20,15 @@ local AF_Worker = {}
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q then return 0 end
-    local list = q.actionQueue or q.queue
-    if not list then return 0 end
-    -- Java ArrayList exposes :size()
-    if type(list) == "userdata" and list.size and type(list.size) == "function" then
-        return list:size()
-    end
+    if not q or not q.queue then return 0 end
+    -- B42: q.queue is a Java ArrayList; :size() can error in the debugger
+    local ok, n = pcall(function() return q.queue:size() end)
+    if ok and type(n) == "number" then return n end
+    local c = 0
+    for _ in pairs(q.queue) do c = c + 1 end
+    return c
+end
+
     -- Lua table fallback
     if type(list) == "table" then
         local c = 0
