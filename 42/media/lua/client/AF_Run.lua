@@ -23,19 +23,25 @@ local function getAreas()
     return a and a.chop, a and a.pile
 end
 
-function AF.Run.start(playerObj)
+function AF_Run.start(playerObj)
     local p = playerObj or getSpecificPlayer(0) or getPlayer()
     if not p then return end
 
     local chop, pile = getAreas()
     if not chop then p:Say("Set a Chop/Gather area first.") return end
-    if not pile then p:Say("Set a Wood Pile area first.")   return end
+    if not pile then p:Say("Set a Wood Pile area first.") return end
 
-    -- Load the worker on demand so AF_Run itself can load cleanly.
+    -- force a fresh load while developing (remove for release)
+    if package and package.loaded then
+        package.loaded["AF_Worker"] = nil
+        package.loaded["AF_Hauler"] = nil
+    end
+
+    -- now (re)load the worker module
     local okW, AF_WorkerOrErr = safeRequire("AF_Worker")
     local AF_Worker = okW and AF_WorkerOrErr or nil
     if type(AF_Worker) ~= "table" or type(AF_Worker.start) ~= "function" then
-        AF_Log.error("AF_Worker not loaded: "..tostring(AF_WorkerOrErr))
+        AF_Log.error("AF_Worker not loaded: " .. tostring(AF_WorkerOrErr))
         if p.Say then p:Say("AutoForester: worker not loaded (see console).") end
         return
     end

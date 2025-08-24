@@ -160,5 +160,4 @@ function AF_Hauler.dropBatchToPile(playerObj, limit)
     return #toDrop
 end
 
-
 return AF_Hauler
