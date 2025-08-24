@@ -99,10 +99,31 @@ local function enqueueChop(rect, z, p)
 end
 
 -- Return current timed-action queue length for player p without throwing.
+-- Return the character's timed action count without throwing in B41/B42.
+
 local function queueSize(p)
     if not p then return 0 end
+
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
     if not q then return 0 end
+
+    -- B42 renamed the field to actionQueue; B41 used queue.
+    local list = q.actionQueue or q.queue
+    if not list then return 0 end
+
+    -- If it's a Java ArrayList (most builds), it exposes :size().
+    if list.size and type(list.size) == "function" then
+        -- Only call when the method exists; avoids error spam in logs.
+        return list:size()
+    end
+
+    -- Fallback for rare cases where it's a Lua table.
+    local c = 0
+    if type(list) == "table" then
+        for _ in pairs(list) do c = c + 1 end
+    end
+    return c
+end
 
     -- preferred: Java ArrayList behind the queue
     local qq = q.queue or (q.getQueue and q:getQueue()) or nil

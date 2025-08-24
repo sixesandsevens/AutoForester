@@ -86,17 +86,17 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxPerBatch)
 
     AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
     return enqueued
-    
+
 end
 
--- Drop up to `limit` logs from inventory at the pile square.
+-- Drop up to `limit` logs from the player's inventory at the pile square.
 function AF_Hauler.dropBatchToPile(playerObj, limit)
     if not pileSq or not playerObj then return 0 end
 
     local inv = playerObj:getInventory()
     if not inv then return 0 end
 
-    -- Collect up to `limit` logs from the *root* inventory.
+    -- Scan the root inventory and pick only Base.Log items.
     local items = inv:getItems()
     if not items then return 0 end
 
@@ -111,18 +111,13 @@ function AF_Hauler.dropBatchToPile(playerObj, limit)
     end
     if #toDrop == 0 then return 0 end
 
-    -- Walk to the pile first.
+    -- Walk to the pile, then drop logs at our feet (onto the pile square).
     ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, pileSq))
 
-    -- Timed, reliable drop (world coords) if available; else vanilla drop-at-feet.
-    for i = 1, #toDrop do
-        local it = toDrop[i]
-        if ISDropWorldItemAction and ISDropWorldItemAction.new then
-            ISTimedActionQueue.add(ISDropWorldItemAction:new(
-                playerObj, it, pileSq:getX(), pileSq:getY(), pileSq:getZ()))
-        else
-            ISTimedActionQueue.add(ISDropItemAction:new(playerObj, it, 0))
-        end
+    -- Use a small but non-zero drop time to avoid UI/progress glitches.
+    local DROP_TIME = 10
+    for _, it in ipairs(toDrop) do
+        ISTimedActionQueue.add(ISDropItemAction:new(playerObj, it, DROP_TIME))
     end
 
     AF_Log.info("AutoForester: queued " .. tostring(#toDrop) .. " drop(s) to pile.")
