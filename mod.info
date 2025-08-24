@@ -1,5 +1,6 @@
-name=AutoForester (Patch)
-id=AutoForester
-description=Safer mouse picking + JBASS-free area selection fallback. Context menu & logging fixes.
+name=AutoForester (Area Pile Patch)
+id=AutoForester_AreaPilePatch
+description=Unify selection to area for both chop/gather and wood pile.
 poster=poster.png
-version=0.2.0
+version=1.0
+is_mod=true
