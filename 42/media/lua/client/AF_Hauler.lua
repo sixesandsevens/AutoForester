@@ -21,6 +21,13 @@ function AF_Hauler.setWoodPileSquare(sq)
     end
 end
 
+-- Identify "world log" safely.
+local function isLogWorldObj(w)
+    if not (w and instanceof(w, "IsoWorldInventoryObject")) then return false end
+    local it = w:getItem()
+    return it and it.getFullType and it:getFullType() == "Base.Log"
+end
+
 local function invNearlyFull(p, thresh)
     thresh = thresh or 0.85
     local inv = p and p.getInventory and p:getInventory() or nil
@@ -30,13 +37,64 @@ local function invNearlyFull(p, thresh)
     return carried >= (maxW * thresh)
 end
 
--- Scan rect and enqueue walk+grab actions (up to maxCount).
--- IMPORTANT: pass the IsoWorldInventoryObject to ISGrabItemAction.
+-- Pick a destination container with room (prefers equipped back item).
+local function pickDestContainer(playerObj, unitWeight)
+    unitWeight = unitWeight or 3.0
+    -- prefer back item
+    local back = playerObj.getClothingItem_Back and playerObj:getClothingItem_Back() or nil
+    if back and back.getItemContainer then
+        local c = back:getItemContainer()
+        if c and c.hasRoomFor and c:hasRoomFor(playerObj, unitWeight) then return c end
+    end
+    -- any carried container
+    local inv = playerObj:getInventory()
+    local items = inv and inv:getItems()
+    if items then
+        for i = 0, items:size() - 1 do
+            local it = items:get(i)
+            if instanceof(it, "InventoryContainer") then
+                local c = it:getItemContainer()
+                if c and c.hasRoomFor and c:hasRoomFor(playerObj, unitWeight) then
+                    return c
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Compute how many logs we can enqueue right now
+local function logsThatFit(playerObj, destContainer, unitWeight)
+    unitWeight = unitWeight or 3.0
+    if destContainer and destContainer.hasRoomFor then
+        local can = 0
+        for _ = 1, 10 do -- hard cap probes
+            if destContainer:hasRoomFor(playerObj, unitWeight) then
+                can = can + 1
+            else
+                break
+            end
+        end
+        return can
+    else
+        local maxW = playerObj.getMaxWeight and playerObj:getMaxWeight() or 12
+        local curW = playerObj.getInventoryWeight and playerObj:getInventoryWeight() or 0
+        local free = math.max(0, maxW - curW)
+        return math.max(0, math.floor(free / unitWeight))
+    end
+end
+
+-- Scan rect and enqueue walk+grab actions (up to maxCount) with capacity awareness.
 function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
     local cell     = getWorld():getCell()
-    local toQueue  = maxCount or 20
-    local enqueued = 0
+    local unitW    = 3.0 -- Base.Log typical weight
+    local dest     = pickDestContainer(playerObj, unitW)
 
+    local hardCap  = math.min(maxCount or 20, 20)
+    local softCap  = math.max(1, logsThatFit(playerObj, dest, unitW))
+    local toQueue  = math.max(1, math.min(hardCap, softCap))
+
+    local enqueued = 0
     for y = rect[2], rect[4] do
         for x = rect[1], rect[3] do
             if enqueued >= toQueue then
@@ -49,18 +107,25 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxCount)
                 local wobs = sq:getWorldObjects()
                 local n    = (wobs and wobs:size()) or 0
                 for i = 0, n - 1 do
-                    local w = wobs:get(i) -- IsoWorldInventoryObject
-                    if w and instanceof(w, "IsoWorldInventoryObject") then
-                        local it = w:getItem()
-                        if it and it.getFullType and it:getFullType() == "Base.Log" then
-                            -- walk to the square before grabbing
-                            ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, sq))
-                            ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, w, 50))
-                            enqueued = enqueued + 1
-                            if enqueued >= toQueue or invNearlyFull(playerObj) then
-                                AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
-                                return enqueued
-                            end
+                    local w = wobs:get(i)
+                    if isLogWorldObj(w) then
+                        if enqueued >= toQueue then
+                            AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
+                            return enqueued
+                        end
+                        -- walk to square
+                        ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, sq))
+                        -- grab inventory item from world; prefer container destination
+                        local item = w:getItem()
+                        if dest then
+                            ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, item, 50, dest))
+                        else
+                            ISTimedActionQueue.add(ISGrabItemAction:new(playerObj, item, 50))
+                        end
+                        enqueued = enqueued + 1
+                        if enqueued >= toQueue or invNearlyFull(playerObj) then
+                            AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
+                            return enqueued
                         end
                     end
                 end
@@ -91,9 +156,9 @@ function AF_Hauler.dropBatchToPile(playerObj, limit)
     end
     if #toDrop == 0 then return 0 end
 
-    -- walk to the pile once, then drop each at feet (which are on the pile)
+    -- walk to the pile once, then drop at feet (on the pile)
     ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, pileSq))
-    local DROP_TIME = 10 -- non-zero to avoid the glitched progress bar
+    local DROP_TIME = 10 -- non-zero to avoid glitched progress bar
     for _, it in ipairs(toDrop) do
         ISTimedActionQueue.add(ISDropItemAction:new(playerObj, it, DROP_TIME))
     end

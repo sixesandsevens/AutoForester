@@ -8,24 +8,32 @@ if not okLog or type(AF_Log) ~= "table" then
     }
 end
 
-local AF_Hauler  = require "AF_Hauler"
-local AF_Sweeper = require "AF_Sweeper"
+local okHauler, AF_Hauler = pcall(require, "AF_Hauler")
+if not okHauler or type(AF_Hauler) ~= "table" then
+    AF_Log.warn("AF_Hauler missing or invalid; will bail on start.")
+    AF_Hauler = nil
+end
 
 local AF_Worker = {}
 
--- robust queue size (B41 vs B42)
+-- robust queue size (B41 vs B42) without throwing
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
     if not q then return 0 end
     local list = q.actionQueue or q.queue
     if not list then return 0 end
-    if list.size and type(list.size) == "function" then
+    -- Java ArrayList exposes :size()
+    if type(list) == "userdata" and list.size and type(list.size) == "function" then
         return list:size()
     end
-    local c = 0
-    if type(list) == "table" then for _ in pairs(list) do c = c + 1 end end
-    return c
+    -- Lua table fallback
+    if type(list) == "table" then
+        local c = 0
+        for _ in pairs(list) do c = c + 1 end
+        return c
+    end
+    return 0
 end
 
 -- choose a pile square inside the pile-area that actually has a floor
@@ -102,8 +110,7 @@ function AF_Worker.start(p, chopArea, pileArea)
         return
     end
 
-    -- set the pile for the hauler
-    if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
+    if not AF_Hauler or type(AF_Hauler.setWoodPileSquare) ~= "function" then
         AF_Log.error("AF_Hauler not loaded; aborting start.")
         if p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
         return
@@ -123,7 +130,7 @@ function AF_Worker.start(p, chopArea, pileArea)
         end
 
         if state.phase == "haul" then
-            -- only enqueue hauls when queue is empty (keeps batches small)
+            -- enqueue small batches only when queue is empty
             if queueSize(p) == 0 then
                 local picked = AF_Hauler.enqueueBatch(p, rect, z, 20) -- up to 20 pickups
                 if picked == 0 then
