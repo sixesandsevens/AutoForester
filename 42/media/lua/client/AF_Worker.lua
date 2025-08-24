@@ -124,10 +124,19 @@ function AF_Worker.start(p, chopArea, pileArea)
     local pileSq = choosePileSquare(pileArea, p)
     if not pileSq then
         AF_Log.warn("choosePileSquare() returned nil; check pile area bounds/floor.")
-        if p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
+        if p and p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
         return
     end
-    AF_Hauler.setWoodPileSquare(pileSq)
+
+-- Make sure the hauler module actually loaded
+    if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
+        if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
+        AF_Log.error("AF_Hauler not loaded; aborting start.")
+        return
+    end
+
+AF_Hauler.setWoodPileSquare(pileSq)
+
 
     -- Phase 1: chop
     enqueueChop(rect, z, p)
