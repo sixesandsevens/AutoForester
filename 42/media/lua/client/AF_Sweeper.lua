@@ -1,5 +1,9 @@
--- AF_Sweeper.lua – remove grass/bush clutter where possible
-local AF_Log = require "AF_Logger"
+local okLog, AF_Log = pcall(require, "AF_Logger")
+if not okLog or type(AF_Log) ~= "table" then
+    AF_Log = { info=function(...) print("[AutoForester][I]", ...) end,
+               warn=function(...) print("[AutoForester][W]", ...) end,
+               error=function(...) print("[AutoForester][E]", ...) end }
+end
 
 AF_Sweeper = {}
 
@@ -20,13 +24,11 @@ end
 function AF_Sweeper.trySweep(p, sq)
     if not squareHasCuttableObject(sq) then return false end
 
-    -- vanilla helpers first
     if ISWorldObjectContextMenu.doRemovePlant then
         ISWorldObjectContextMenu.doRemovePlant(p, sq, false)
         return true
     end
 
-    -- generic shovel fallback (older actions)
     if ISShovelGround and ISShovelGround.new then
         ISTimedActionQueue.add(ISShovelGround:new(p, sq, 100))
         return true

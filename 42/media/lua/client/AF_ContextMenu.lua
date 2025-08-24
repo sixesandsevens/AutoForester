@@ -1,7 +1,6 @@
 AF = AF or {}
 require "AF_Areas"
 require "AF_SelectAdapter"
-local AF_Run = require "AF_Run"
 
 local function AF_requireRun()
     if AF.Run and AF.Run.start then return true end
@@ -35,14 +34,12 @@ local function AF_ContextMenu(playerIndex, context, worldObjects, test)
     end)
 
     sub:addOption("Start AutoForester", worldObjects, function()
-    local playerObj = getSpecificPlayer(0)
-    if AF_requireRun() then
-        AF.Run.start(playerObj)
-    else
-        playerObj:Say("AutoForester: couldn't load AF_Run (see console).")
-    end
-end)
-
+        if AF_requireRun() then
+            AF.Run.start(playerObj)
+        else
+            playerObj:Say("AutoForester: couldn't load AF_Run (see console).")
+        end
+    end)
 
     local md = ModData.getOrCreate("AutoForester")
     if md.areas and (md.areas.chop or md.areas.pile) then

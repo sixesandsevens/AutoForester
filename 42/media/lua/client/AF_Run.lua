@@ -1,9 +1,14 @@
--- AF_Run.lua – entry point that sequences chop → haul → sweep
-local AF_Log    = require "AF_Logger"
-local AF_Worker = require "AF_Worker"
+AF = AF or {}
+AF.Run = AF.Run or {}
 
-AF       = AF or {}
-AF.Run   = AF.Run or {}
+local okLog, AF_Log = pcall(require, "AF_Logger")
+if not okLog or type(AF_Log) ~= "table" then
+    AF_Log = { info=function(...) print("[AutoForester][I]", ...) end,
+               warn=function(...) print("[AutoForester][W]", ...) end,
+               error=function(...) print("[AutoForester][E]", ...) end }
+end
+
+local AF_Worker = require "AF_Worker"
 
 local function getAreas()
     local md = ModData.getOrCreate("AutoForester")
@@ -19,7 +24,9 @@ function AF.Run.start(playerObj)
     if not chop then p:Say("Set a Chop/Gather area first.") return end
     if not pile then p:Say("Set a Wood Pile area first.")   return end
 
+    AF_Log.info("AutoForester starting…")
     AF_Worker.start(p, chop, pile)
 end
 
+print("AutoForester: AF_Run loaded")
 return AF.Run
