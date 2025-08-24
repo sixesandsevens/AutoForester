@@ -1,5 +1,10 @@
-name=AutoForester
-id=AutoForester
+name=AutoForester (Area Pile Patch)
+id=AutoForester_AreaPilePatch
+description=Unify selection to area for both chop/gather and wood pile.
 poster=poster.png
-description=Select an area, chop trees, sweep grass/bushes, and haul logs to a designated wood pile. Optional support for JB_ASSUtils selection if present.
-version=0.6
+require=
+incompatibility=
+pack=
+version=1.0
+uses=
+is_mod=true
