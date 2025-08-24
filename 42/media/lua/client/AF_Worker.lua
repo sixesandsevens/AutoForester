@@ -1,14 +1,48 @@
+-- AF_Worker.lua
+
 local okLog, AF_Log = pcall(require, "AF_Logger")
 if not okLog or type(AF_Log) ~= "table" then
-    AF_Log = { info=function(...) print("[AutoForester][I]", ...) end,
-               warn=function(...) print("[AutoForester][W]", ...) end,
-               error=function(...) print("[AutoForester][E]", ...) end }
+    AF_Log = {
+        info  = function(...) print("[AutoForester][I]", ...) end,
+        warn  = function(...) print("[AutoForester][W]", ...) end,
+        error = function(...) print("[AutoForester][E]", ...) end
+    }
 end
 
 local AF_Hauler  = require "AF_Hauler"
 local AF_Sweeper = require "AF_Sweeper"
 
 AF_Worker = {}
+
+-- Choose a solid floor square inside the pile area (closest to player).
+local function choosePileSquare(area, p)
+    if not area then return nil end
+    local minX, minY, maxX, maxY = area.minX, area.minY, area.maxX, area.maxY
+    if not (minX and minY and maxX and maxY) then return nil end
+
+    local world = getWorld()
+    local cell  = world and world:getCell()
+    if not cell then return nil end
+
+    local z  = area.z or 0
+    local px, py = 0, 0
+    if p and p.getX then px, py = p:getX(), p:getY() end
+
+    local bestSq, bestD2 = nil, math.huge
+    for y = minY, maxY do
+        for x = minX, maxX do
+            local sq = cell:getGridSquare(x, y, z)
+            if sq and sq:getFloor() then
+                local dx, dy = (x + 0.5) - px, (y + 0.5) - py
+                local d2 = dx*dx + dy*dy
+                if d2 < bestD2 then
+                    bestD2, bestSq = d2, sq
+                end
+            end
+        end
+    end
+    return bestSq
+end
 
 local function rectHasTrees(rect, z)
     local cell = getWorld() and getWorld():getCell()
@@ -30,12 +64,11 @@ local function rectHasLogs(rect, z)
             local sq = cell:getGridSquare(x, y, z)
             if sq then
                 local wobs = sq:getWorldObjects()
-                local n = (wobs and wobs:size()) or 0
-                for i = 0, n - 1 do
-                    local w = wobs:get(i)
-                    if instanceof(w, "IsoWorldInventoryObject") then
-                        local item = w:getItem()
-                        if item and item.getFullType and item:getFullType() == "Base.Log" then
+                for i = 0, (wobs and wobs:size() or 0) - 1 do
+                    local o = wobs:get(i)
+                    if instanceof(o, "IsoWorldInventoryObject") then
+                        local item = o:getItem()
+                        if item and item:getFullType() == "Base.Log" then
                             return true
                         end
                     end
@@ -44,27 +77,6 @@ local function rectHasLogs(rect, z)
         end
     end
     return false
-end
-
-local function choosePileSquare(area, p)
-    if not area then return nil end
-    local cell = getWorld() and getWorld():getCell()
-    if not cell then return nil end
-    local z = area.z or 0
-
-    -- Prefer any valid floor tile in the area (esp. for z>0)
-    for y = area.minY, area.maxY do
-        for x = area.minX, area.maxX do
-            local sq = cell:getGridSquare(x, y, z)
-            if sq and (z == 0 or sq:getFloor()) then
-                return sq
-            end
-        end
-    end
-    -- Fallback center
-    local cx = math.floor((area.minX + area.maxX) / 2)
-    local cy = math.floor((area.minY + area.maxY) / 2)
-    return cell:getGridSquare(cx, cy, z)
 end
 
 local function enqueueChop(rect, z, p)
@@ -77,7 +89,7 @@ local function enqueueChop(rect, z, p)
             if sq and sq:HasTree() then
                 local tree = sq:getTree()
                 if tree then
-                    ISWorldObjectContextMenu.doChopTree(p, tree)
+                    ISWorldObjectContextMenu.doChopTree(p, tree) -- queues timed actions
                     count = count + 1
                 end
             end
@@ -86,47 +98,38 @@ local function enqueueChop(rect, z, p)
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
 end
 
--- Safe across builds (queue is sometimes a Java list, sometimes a Lua table)
 local function queueSize(p)
-    if not p or not ISTimedActionQueue or not ISTimedActionQueue.getTimedActionQueue then
-        return 0
-    end
+    if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q then return 0 end
-
-    local list = q.queue or (type(q.getQueue) == "function" and q:getQueue()) or q.actions or q.list or q
-    if list and list.size then
-        local ok, n = pcall(function() return list:size() end)
-        if ok and type(n) == "number" then return n end
-    end
-    if type(list) == "table" then
-        local n = 0; for _ in pairs(list) do n = n + 1 end; return n
-    end
-    return 0
+    return (q and q.queue and q.queue:size()) or 0
 end
 
----------------------------------------------------------------------------
 -- Public: start the job (chop → haul → sweep)
----------------------------------------------------------------------------
 function AF_Worker.start(p, chopArea, pileArea)
     if not p then return end
-    if not chopArea then if p.Say then p:Say("AutoForester: no chop area set.") end; return end
+    if not chopArea then
+        if p.Say then p:Say("AutoForester: no chop area set.") end
+        return
+    end
 
     local z    = chopArea.z or 0
     local rect = { chopArea.minX, chopArea.minY, chopArea.maxX, chopArea.maxY }
 
-    -- Choose pile square and hand it to the hauler
+    -- Choose and set a valid pile square (guard against nil)
     local pileSq = choosePileSquare(pileArea, p)
     if not pileSq then
         AF_Log.warn("choosePileSquare() returned nil; check pile area bounds/floor.")
-        if p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
+        if p and p.Say then p:Say("AutoForester: wood pile area has no valid floor tiles.") end
         return
     end
+
+    -- Make sure the hauler module actually loaded
     if type(AF_Hauler) ~= "table" or type(AF_Hauler.setWoodPileSquare) ~= "function" then
-        if p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
+        if p and p.Say then p:Say("AutoForester: hauler not loaded (see console).") end
         AF_Log.error("AF_Hauler not loaded; aborting start.")
         return
     end
+
     AF_Hauler.setWoodPileSquare(pileSq)
 
     -- Phase 1: chop
@@ -143,19 +146,19 @@ function AF_Worker.start(p, chopArea, pileArea)
         end
 
         if state.phase == "haul" then
+            -- enqueue pickup only when queue is empty
             if queueSize(p) == 0 then
-                local picked = AF_Hauler.enqueueBatch(p, rect, z, 20)
+                local picked = AF_Hauler.enqueueBatch(p, rect, z, 20) -- up to 20 pickups
                 if picked == 0 then
-                    -- No more to pick up; dump what we carry and decide next
+                    -- drop whatever we’re carrying and see if area is clear
                     AF_Hauler.dropBatchToPile(p, 200)
-                    local inv = p:getInventory()
-                    local logsInInv = inv and inv:getCountTypeRecurse and inv:getCountTypeRecurse("Base.Log") or 0
+                    local logsInInv = p:getInventory():getCountTypeRecurse("Base.Log")
                     if not rectHasLogs(rect, z) and logsInInv == 0 and queueSize(p) == 0 then
                         state.phase = "sweep"
                         AF_Log.info("AutoForester: Sweep phase…")
                     end
                 else
-                    -- After each pickup batch, also enqueue a drop batch
+                    -- after a pickup batch, also queue a drop batch
                     AF_Hauler.dropBatchToPile(p, 200)
                 end
             end
@@ -164,15 +167,14 @@ function AF_Worker.start(p, chopArea, pileArea)
 
         if state.phase == "sweep" then
             if queueSize(p) == 0 then
-                local cell = getWorld() and getWorld():getCell()
+                local cell = getWorld():getCell()
                 local added = 0
-                if cell then
-                    for x = rect[1], rect[3] do
-                        for y = rect[2], rect[4] do
-                            local sq = cell:getGridSquare(x, y, z)
-                            if sq and AF_Sweeper.trySweep(p, sq) then
-                                added = added + 1
-                            end
+                for x = rect[1], rect[3] do
+                    for y = rect[2], rect[4] do
+                        local sq = cell:getGridSquare(x, y, z)
+                        if sq then
+                            local did = AF_Sweeper.trySweep(p, sq)
+                            if did then added = added + 1 end
                         end
                     end
                 end
