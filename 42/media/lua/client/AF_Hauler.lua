@@ -43,7 +43,7 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxPickups)
     for y = rect[2], rect[4] do
         for x = rect[1], rect[3] do
             if enqueued >= toQueue then
-                AF_Log.info("AutoForester: Haul actions queued ("..tostring(enqueued)..")")
+                AF_Log.info("AutoForester: Haul actions queued (" .. tostring(enqueued) .. ")")
                 return enqueued
             end
 
@@ -80,33 +80,32 @@ function AF_Hauler.enqueueBatch(playerObj, rect, z, maxPickups)
     return enqueued
 end
 
--- Drop up to 'limit' logs from inventory at the pile square.
-function AF_Hauler.dropBatchToPile(playerObj, limit)
-    if not pileSq or not playerObj then return 0 end
+-- Drop any logs currently carried onto the pile square.
+-- Returns number of logs we tried to drop.
+function AF_Hauler.dropBatchToPile(playerObj, _maxWalk)
+    if not (pileSq and instanceof(pileSq, "IsoGridSquare")) then return 0 end
 
-    local inv = playerObj:getInventory()
-    if not inv then return 0 end
+    local inv   = playerObj:getInventory()
+    local items = inv and inv:getItems()
+    if not items or items:size() == 0 then return 0 end
 
-    local arr   = inv:getItemsFromTypeRecurse("Base.Log")
-    local count = arr and arr:size() or 0
-    if count == 0 then return 0 end
-
+    -- collect logs from top-level inventory (ISGrabItemAction puts logs here)
     local toDrop = {}
-    local maxDrop = math.min(limit or 200, count)
-    for i = 0, maxDrop - 1 do
-        local it = arr:get(i)
-        if it then table.insert(toDrop, it) end
+    for i = 0, items:size() - 1 do
+        local it = items:get(i)
+        if it and it.getFullType and it:getFullType() == "Base.Log" then
+            toDrop[#toDrop+1] = it
+        end
     end
     if #toDrop == 0 then return 0 end
 
+    -- walk to the pile and drop them
     ISTimedActionQueue.add(ISWalkToTimedAction:new(playerObj, pileSq))
-    local px, py, pz = pileSq:getX(), pileSq:getY(), pileSq:getZ()
     for i = 1, #toDrop do
         local it = toDrop[i]
-        ISTimedActionQueue.add(ISDropWorldItemAction:new(playerObj, it, px, py, pz))
+        ISTimedActionQueue.add(ISDropWorldItemAction:new(
+            playerObj, it, pileSq:getX(), pileSq:getY(), pileSq:getZ()))
     end
-    AF_Log.info("AutoForester: dropped "..tostring(#toDrop).." logs to pile")
+    AF_Log.info("AutoForester: dropped " .. tostring(#toDrop) .. " logs to pile")
     return #toDrop
 end
-
-return AF_Hauler
