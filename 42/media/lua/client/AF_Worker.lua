@@ -98,20 +98,25 @@ local function enqueueChop(rect, z, p)
     AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
 end
 
+-- Return current timed-action queue length for player p without throwing.
 local function queueSize(p)
     if not p then return 0 end
     local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q or not q.queue then
-        return 0
+    if not q then return 0 end
+
+    -- preferred: Java ArrayList behind the queue
+    local qq = q.queue or (q.getQueue and q:getQueue()) or nil
+    if qq and qq.size then
+        local n = qq:size()
+        if type(n) == "number" then return n end
     end
-    -- q.queue is usually a Java ArrayList; fall back to counting if it isn't.
-    local ok, n = pcall(function() return q.queue:size() end)
-    if ok and type(n) == "number" then
-        return n
+
+    -- conservative fallback: if something is running, we know it's not empty
+    if q.getCurrentlyRunningAction and q:getCurrentlyRunningAction() then
+        return 1
     end
-    local c = 0
-    for _ in pairs(q.queue) do c = c + 1 end
-    return c
+
+    return 0
 end
 
 -- Public: start the job (chop → haul → sweep)
