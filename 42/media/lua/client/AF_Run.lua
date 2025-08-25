@@ -1,25 +1,9 @@
--- 42/media/lua/client/AF_Run.lua
 AF = AF or {}
+AF.Run = AF.Run or {}
 
--- Make both names point to the same table.
-AF_Run = AF_Run or {}
-AF.Run = AF_Run
-
--- Logger (safe fallback)
-local okLog, AF_Log = pcall(require, "AF_Logger")
-if not okLog or type(AF_Log) ~= "table" then
-    AF_Log = {
-        info  = function(...) print("[AutoForester][I]", ...) end,
-        warn  = function(...) print("[AutoForester][W]", ...) end,
-        error = function(...) print("[AutoForester][E]", ...) end,
-    }
-end
-
--- Safe-require helper so we can show a friendly on-screen message.
 local function safeRequire(name)
-    local ok, modOrErr = pcall(require, name)
-    if not ok then return false, modOrErr end
-    return true, modOrErr
+    local ok, mod = pcall(require, name)
+    return ok and mod or nil, (ok and nil or mod)
 end
 
 local function getAreas()
@@ -28,7 +12,7 @@ local function getAreas()
     return a and a.chop, a and a.pile
 end
 
-function AF_Run.start(playerObj)
+function AF_Run_start(playerObj)
     local p = playerObj or getSpecificPlayer(0) or getPlayer()
     if not p then return end
 
@@ -36,24 +20,15 @@ function AF_Run.start(playerObj)
     if not chop then p:Say("Set a Chop/Gather area first.") return end
     if not pile then p:Say("Set a Wood Pile area first.") return end
 
-    -- DEV: force a fresh load while iterating (remove for release)
-    if package and package.loaded then
-        package.loaded["AF_Worker"] = nil
-        package.loaded["AF_Hauler"] = nil
-    end
-
-    -- now (re)load the worker module
-    local okW, AF_WorkerOrErr = safeRequire("AF_Worker")
-    local AF_Worker = okW and AF_WorkerOrErr or nil
-    if type(AF_Worker) ~= "table" or type(AF_Worker.start) ~= "function" then
-        AF_Log.error("AF_Worker not loaded: " .. tostring(AF_WorkerOrErr))
-        if p.Say then p:Say("AutoForester: worker not loaded (see console).") end
+    local Worker, err = safeRequire("AF_Worker")
+    if not Worker or type(Worker.start) ~= "function" then
+        print("[AutoForester][E] worker not loaded:", tostring(err))
+        p:Say("AutoForester: worker not loaded (see console).")
         return
     end
 
-    AF_Log.info("AutoForester: starting")
-    AF_Worker.start(p, chop, pile)
+    print("[AutoForester][I] starting")
+    Worker.start(p, chop, pile)
 end
 
-print("AutoForester: AF_Run loaded")
-return AF_Run
+return AF.Run

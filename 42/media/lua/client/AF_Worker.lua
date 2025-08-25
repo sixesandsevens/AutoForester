@@ -1,127 +1,157 @@
--- AF_Worker.lua
-local AF_Worker = {}
+AF = AF or {}
+AF.Worker = AF.Worker or {}
 
-local okLog, AF_Log = pcall(require, "AF_Logger")
-if not okLog or type(AF_Log) ~= "table" then
-    AF_Log = {
-        info  = function(...) print("[AutoForester][I]", ...) end,
-        warn  = function(...) print("[AutoForester][W]", ...) end,
-        error = function(...) print("[AutoForester][E]", ...) end,
-    }
+local Log = AF_Log or { info=print, warn=print, error=print }
+
+-- --- Area utils ---
+local function areaCenterRect(a)
+    -- center, floored to ints
+    local cx = math.floor((a.minx + a.maxx) / 2)
+    local cy = math.floor((a.miny + a.maxy) / 2)
+    local cz = a.z or 0
+    return cx, cy, cz
 end
 
-local AF_Hauler = require("AF_Hauler")
-
--- ---------- Chop helpers ----------
-
-local function queueSize(p)
-    if not p then return 0 end
-    local q = ISTimedActionQueue.getTimedActionQueue(p:getPlayerNum())
-    if not q or not q.queue then return 0 end
-    local ok, n = pcall(function() return q.queue:size() end)
-    if ok and type(n) == "number" then return n end
-    local c = 0; for _ in pairs(q.queue) do c = c + 1 end
-    return c
+local function isInArea(a, x, y, z)
+    if not a then return false end
+    z = z or 0
+    return z == (a.z or 0)
+       and x >= a.minx and x <= a.maxx
+       and y >= a.miny and y <= a.maxy
 end
 
-local function rectHasTrees(rect, z)
+-- --- Queue helpers ---
+local function queueLen(p)
+    local q = ISTimedActionQueue.getQueueForCharacter(p)
+    return q and #q.queue or 0
+end
+
+local function topUp(maxToHave, addFn)
+    -- Fill the queue up to maxToHave by repeatedly calling addFn()
+    -- addFn must return true if it actually enqueued something.
+    local added = 0
+    while queueLen(addFn.player) < maxToHave do
+        if not addFn() then break end
+        added = added + 1
+        if added > 12 then break end  -- hard safety
+    end
+    return added
+end
+
+-- --- Movement actions (lazy area resolution) ---
+local function enqueueWalkToAreaCenter(p, area)
+    local x, y, z = areaCenterRect(area)
+    -- Let the game figure path; this also ensures chunks are loaded on arrival.
+    ISTimedActionQueue.add(ISWalkToTimedAction:new(p, x, y, z))
+    return true
+end
+
+-- --- Chopping batch (very simple & robust) ---
+local function findNextTreeSquareInArea(area)
+    -- Scan a small ring around center; once we stand inside the area we can expand to full rect
+    local cx, cy, cz = areaCenterRect(area)
     local cell = getCell()
-    for y = rect.miny, rect.maxy do
-        for x = rect.minx, rect.maxx do
-            local sq = cell:getGridSquare(x, y, z)
-            if sq and sq.HasTree and sq:HasTree() then
-                return true
+    -- Tight search first; you can widen this as needed
+    for dy = -8, 8 do
+        for dx = -8, 8 do
+            local x, y = cx + dx, cy + dy
+            if isInArea(area, x, y, cz) then
+                local sq = cell:getGridSquare(x, y, cz)
+                if sq then
+                    for i=0, sq:getObjects():size()-1 do
+                        local o = sq:getObjects():get(i)
+                        if o and instanceof(o, "IsoTree") then
+                            return sq
+                        end
+                    end
+                end
             end
         end
     end
+    return nil
+end
+
+local function enqueueChopOne(p, area)
+    -- Only call this when we are already inside the chop area
+    local sq = findNextTreeSquareInArea(area)
+    if not sq then return false end
+    ISTimedActionQueue.add(ISChopTreeAction:new(p, sq))
+    return true
+end
+
+-- --- Haul/drop batch (area, not square) ---
+local function canCarryOneMoreLog(p)
+    local inv = p:getInventory()
+    if not inv then return false end
+    local cap  = p:getMaxWeight()
+    local cur  = inv:getCapacityWeight()
+    -- logs are heavy; keep ~4 units spare so we don’t redline
+    return (cap - cur) > 4.0
+end
+
+local function insideOrWalkToPile(p, pileArea)
+    if isInArea(pileArea, p:getX(), p:getY(), p:getZ()) then
+        return true
+    end
+    enqueueWalkToAreaCenter(p, pileArea)
     return false
 end
 
-local function enqueueChop(rect, z, p)
-    local cell = getCell()
-    local count = 0
-    for y = rect.miny, rect.maxy do
-        for x = rect.minx, rect.maxx do
-            local sq = cell:getGridSquare(x, y, z)
-            if sq and sq.HasTree and sq:HasTree() then
-                local tree = sq:getTree()
-                if tree then
-                    ISWorldObjectContextMenu.doChopTree(p, tree)
-                    count = count + 1
-                end
-            end
+local function enqueueDropLogsHere(p)
+    -- Drop whatever logs we have on the square we’re currently standing on.
+    local inv = p:getInventory()
+    if not inv then return false end
+    local items = inv:getItems()
+    local added = false
+    for i = items:size()-1, 0, -1 do
+        local it = items:get(i)
+        -- Adjust the type check to your log fulltype(s)
+        if it and it:getFullType() == "Base.Log" then
+            ISTimedActionQueue.add(ISDropItemAction:new(p, it))
+            added = true
         end
     end
-    if count > 0 then
-        AF_Log.info("AutoForester: Chop actions queued ("..tostring(count)..")")
-    end
+    return added
 end
 
--- ---------- Public: job entry ----------
+-- --- Public entry ---
+function AF.Worker.start(p, chopArea, pileArea)
+    Log.info("[AF] start; walking to chop area")
+    enqueueWalkToAreaCenter(p, chopArea)
 
-function AF_Worker.start(p, chopArea, pileArea)
-    if not p or not chopArea or not pileArea then return end
+    -- Main lightweight driver: run a small top-up each tick.
+    Events.OnPlayerUpdate.Add(function(player)
+        if player ~= p then return end
 
-    -- Normalize rect and z
-    local z = p:getZ() or 0
-    local rect = {
-        minx = math.floor(math.min(chopArea.minx, chopArea.maxx)),
-        maxx = math.floor(math.max(chopArea.minx, chopArea.maxx)),
-        miny = math.floor(math.min(chopArea.miny, chopArea.maxy)),
-        maxy = math.floor(math.max(chopArea.miny, chopArea.maxy)),
-    }
+        -- If we’re not in chop area yet, do nothing (the walk action is in the queue).
+        local px, py, pz = p:getX(), p:getY(), p:getZ()
+        local inChop = isInArea(chopArea, px, py, pz)
+        local inPile = isInArea(pileArea, px, py, pz)
 
-    -- Phase 1: enqueue chop once
-    enqueueChop(rect, z, p)
-
-    local state = "CHOP"
-
-    local function tick()
-        if state == "CHOP" then
-            -- Wait until the chop queue drains and area has no trees left
-            if rectHasTrees(rect, z) or queueSize(p) > 0 then
-                return
-            end
-            AF_Log.info("AutoForester: moving to GATHER")
-            state = "GATHER"
-            return
-        end
-
-        if state == "GATHER" then
-            -- Try to add a single grab; if not possible, either dump or finish
-            if AF_Hauler.enqueueOneGrab(p, rect) then
-                return
-            end
-
-            -- Not able to enqueue: either full or no logs → decide what to do
-            local inv = p:getInventory()
-            local carryingAny = inv and inv:containsTypeRecurse("Log") or false
-            if carryingAny then
-                if AF_Hauler.enqueueDumpToArea(p, pileArea) then
-                    state = "DUMP"
+        -- If inventory is getting full, ensure we’re headed to the pile & drop there.
+        if not canCarryOneMoreLog(p) or inPile then
+            if insideOrWalkToPile(p, pileArea) then
+                -- We are inside pile; top up a few drop actions
+                topUp(6, function()
+                    return enqueueDropLogsHere(p)
+                end)
+                -- After we’ve queued drops, once the queue drains we’ll walk back to chop
+                if queueLen(p) <= 1 then
+                    enqueueWalkToAreaCenter(p, chopArea)
                 end
-            else
-                -- No logs to pick and none carried → done
-                state = "DONE"
             end
             return
         end
 
-        if state == "DUMP" then
-            -- Wait for dump to complete; then return to GATHER to look for more
-            if queueSize(p) == 0 then
-                state = "GATHER"
-            end
-            return
+        -- We have room to chop:
+        if inChop then
+            topUp(6, function()
+                return enqueueChopOne(p, chopArea)
+            end)
+        else
+            -- not there yet → keep/let the walk action run
         end
-
-        -- DONE: remove our tick
-        Events.OnPlayerUpdate.Remove(tick)
-        AF_Log.info("AutoForester: job complete")
-    end
-
-    -- Drive the simple state machine
-    Events.OnPlayerUpdate.Add(tick)
+    end)
 end
 
-return AF_Worker
+return AF.Worker
