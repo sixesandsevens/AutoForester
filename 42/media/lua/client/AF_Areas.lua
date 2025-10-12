@@ -8,7 +8,44 @@ local function _getMD()
 end
 
 function AF.Areas.packArea(a)
-    if not a or not a.squares or #a.squares == 0 then return nil end
+    if not a then return nil end
+    local z = 0
+    local minx, miny, maxx, maxy
+
+    -- If we were given a selection object with squares:
+    if a.squares and #a.squares > 0 then
+        local first = a.squares[1]
+        if type(first) == "table" and first.getZ then
+            z = first:getZ()
+        elseif type(first) == "table" and first.z then
+            z = first.z
+        else
+            z = a.z or 0
+        end
+        for _, pt in ipairs(a.squares) do
+            local x = pt.x
+            local y = pt.y
+            if not x and pt.getX then x = pt:getX() end
+            if not y and pt.getY then y = pt:getY() end
+            if x and y then
+                minx = (minx and math.min(minx, x)) or x
+                miny = (miny and math.min(miny, y)) or y
+                maxx = (maxx and math.max(maxx, x)) or x
+                maxy = (maxy and math.max(maxy, y)) or y
+            end
+        end
+    else
+        -- Or we were given a rect-like table already
+        minx = a.minx or a.minX
+        miny = a.miny or a.minY
+        maxx = a.maxx or a.maxX
+        maxy = a.maxy or a.maxY
+        z    = a.z or 0
+    end
+
+    if not (minx and miny and maxx and maxy) then return nil end
+    return { z = z, minx = minx, miny = miny, maxx = maxx, maxy = maxy }
+end
     local b = a[1] or {}
     local res = {
         z = b.areaZ or (a.squares[1] and a.squares[1]:getZ()) or 0,
