@@ -12,7 +12,7 @@ function AF.Areas.packArea(a)
     local b = a[1] or {}
     local res = {
         z = b.areaZ or (a.squares[1] and a.squares[1]:getZ()) or 0,
-        minX = b.minX, minY = b.minY, maxX = b.maxX, maxY = b.maxY
+        minx = b.minx, miny = b.miny, maxx = b.maxx, maxy = b.maxy
     }
     res.squares = {}
     for _, sq in ipairs(a.squares) do

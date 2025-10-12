@@ -86,8 +86,22 @@ end
 
 -- ---------- public API ----------
 
+-- tolerate either camelCase or lowercase keys
+local function _normalizeRect(r)
+    if not r then return nil end
+    if r.minx then return r end
+    return {
+        minx = r.minX or r.minx,
+        miny = r.minY or r.miny,
+        maxx = r.maxX or r.maxx,
+        maxy = r.maxY or r.maxy,
+        z    = r.z or 0
+    }
+end
 -- rects are {minx,miny,maxx,maxy,z?}
 function AF_Worker.start(p, chopArea, pileArea)
+    chopArea = _normalizeRect(chopArea)
+    pileArea = _normalizeRect(pileArea)
     p = p or getSpecificPlayer(0) or getPlayer()
     if not p then return end
 
