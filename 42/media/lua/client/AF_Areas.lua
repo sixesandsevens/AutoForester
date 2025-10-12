@@ -1,3 +1,4 @@
+-- AF_Areas.lua
 AF = AF or {}
 AF.Areas = AF.Areas or {}
 
@@ -7,26 +8,19 @@ local function _getMD()
     return md
 end
 
+-- Accept a selection (a.squares) or rect-like table; output lower-case keys.
 function AF.Areas.packArea(a)
     if not a then return nil end
     local z = 0
     local minx, miny, maxx, maxy
 
-    -- If we were given a selection object with squares:
     if a.squares and #a.squares > 0 then
         local first = a.squares[1]
-        if type(first) == "table" and first.getZ then
-            z = first:getZ()
-        elseif type(first) == "table" and first.z then
-            z = first.z
-        else
-            z = a.z or 0
-        end
+        if first and first.z then z = first.z
+        elseif first and first.getZ then z = first:getZ() end
         for _, pt in ipairs(a.squares) do
-            local x = pt.x
-            local y = pt.y
-            if not x and pt.getX then x = pt:getX() end
-            if not y and pt.getY then y = pt:getY() end
+            local x = pt.x or (pt.getX and pt:getX()) or nil
+            local y = pt.y or (pt.getY and pt:getY()) or nil
             if x and y then
                 minx = (minx and math.min(minx, x)) or x
                 miny = (miny and math.min(miny, y)) or y
@@ -35,7 +29,6 @@ function AF.Areas.packArea(a)
             end
         end
     else
-        -- Or we were given a rect-like table already
         minx = a.minx or a.minX
         miny = a.miny or a.minY
         maxx = a.maxx or a.maxX
@@ -46,71 +39,67 @@ function AF.Areas.packArea(a)
     if not (minx and miny and maxx and maxy) then return nil end
     return { z = z, minx = minx, miny = miny, maxx = maxx, maxy = maxy }
 end
-    local b = a[1] or {}
-    local res = {
-        z = b.areaZ or (a.squares[1] and a.squares[1]:getZ()) or 0,
-        minx = b.minx, miny = b.miny, maxx = b.maxx, maxy = b.maxy
-    }
-    res.squares = {}
-    for _, sq in ipairs(a.squares) do
-        table.insert(res.squares, { x = sq:getX(), y = sq:getY() })
-    end
-    res.numSquares = #res.squares
-    res.centerX = math.floor((res.minX + res.maxX) / 2)
-    res.centerY = math.floor((res.minY + res.maxY) / 2)
-    return res
-end
 
-function AF.Areas.set(name, areaPacked)
-    if not areaPacked then return end
+function AF.Areas.setChopArea(a)
     local md = _getMD()
-    md.areas[name] = areaPacked
+    md.areas.chop = AF.Areas.packArea(a)
     ModData.transmit("AutoForester")
+    if md.areas.chop then
+        AF_Log.info(string.format("AutoForester: chop set min(%s,%s) max(%s,%s) z=%s",
+            tostring(md.areas.chop.minx), tostring(md.areas.chop.miny),
+            tostring(md.areas.chop.maxx), tostring(md.areas.chop.maxy),
+            tostring(md.areas.chop.z or 0)))
+    else
+        AF_Log.err("AutoForester: chop set failed (nil)")
+    end
 end
 
-function AF.Areas.get(name)
+function AF.Areas.setPileArea(a)
     local md = _getMD()
-    return md.areas and md.areas[name] or nil
-end
-
-function AF.Areas.setPileArea(playerObj, worldObjects, selectedArea)
-    local info = AF.Areas.packArea(selectedArea)
-    if info then
-        AF.Areas.set("pile", info)
-        if playerObj then playerObj:Say(getText("IGUI_AF_PileAreaSet") or "Wood pile area set.") end
+    md.areas.pile = AF.Areas.packArea(a)
+    ModData.transmit("AutoForester")
+    if md.areas.pile then
+        AF_Log.info(string.format("AutoForester: pile set min(%s,%s) max(%s,%s) z=%s",
+            tostring(md.areas.pile.minx), tostring(md.areas.pile.miny),
+            tostring(md.areas.pile.maxx), tostring(md.areas.pile.maxy),
+            tostring(md.areas.pile.z or 0)))
+    else
+        AF_Log.err("AutoForester: pile set failed (nil)")
     end
 end
 
-function AF.Areas.setChopArea(playerObj, worldObjects, selectedArea)
-    local info = AF.Areas.packArea(selectedArea)
-    if info then
-        AF.Areas.set("chop", info)
-        if playerObj then playerObj:Say(getText("IGUI_AF_ChopAreaSet") or "Chop/gather area set.") end
-    end
+function AF.Areas.clear()
+    local md = _getMD()
+    md.areas = {}
+    ModData.transmit("AutoForester")
+    AF_Log.info("AutoForester: areas cleared")
 end
 
-function AF.Areas.toSquares(areaPacked)
-    local squares = {}
-    if not areaPacked then return squares end
-    local z = areaPacked.z or 0
-    for _, pt in ipairs(areaPacked.squares or {}) do
-        local sq = getSquare(pt.x, pt.y, z)
-        if sq then table.insert(squares, sq) end
-    end
-    return squares
+function AF.Areas.getAreas()
+    local md = _getMD()
+    return (md and md.areas) or {}
 end
 
--- Optional: draw saved areas every tick so it's obvious what is set
+-- Optional overlay (guarded & throttled)
 local function _drawOverlay()
-    local md = ModData.getOrCreate("AutoForester")
+    if type(addAreaHighlight) ~= "function" then return end
+    _G.__AF_overlayTick = (_G.__AF_overlayTick or 0) + 1
+    if _G.__AF_overlayTick % 10 ~= 0 then return end
+
+    local md = _getMD()
     if not md or not md.areas then return end
-    for name, a in pairs(md.areas) do
-        if a and a.squares then
-            for _, pt in ipairs(a.squares) do
-                addAreaHighlight(pt.x, pt.y, pt.x + 1, pt.y + 1, a.z or 0, 0.3, 0.8, 0.3, 0)
-            end
-        end
+
+    local function box(a, r,g,b)
+        if not a or not a.minx or not a.miny or not a.maxx or not a.maxy then return end
+        local x1,y1,x2,y2 = a.minx, a.miny, a.maxx + 1, a.maxy + 1
+        local z = a.z or 0
+        pcall(function()
+            addAreaHighlight(x1, y1, x2, y2, z, r or 0.7, g or 0.9, b or 0.0, 0.0)
+        end)
     end
+
+    box(md.areas.chop, 0.2, 0.8, 0.2)
+    box(md.areas.pile, 0.9, 0.9, 0.2)
 end
 
 Events.OnTick.Remove(_drawOverlay)
